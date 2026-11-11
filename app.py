@@ -13,19 +13,13 @@ st.markdown("""
 .stButton>button {width: 100%; background: linear-gradient(90deg, #ef4444, #9333ea); color: white; font-weight: bold; border: none; border-radius: 10px; padding: 12px; font-size: 16px;}
 </style>
 <div class="title-box">
-  <h1>⚡ TURBO SHORTS MAKER (24x7 LIVE)</h1>
-  <p style="color:#cbd5e1; margin:4px 0 0 0; font-size:14px;">16x Aria2c Pull • Parallel Multi-Core Cutting • Zero Pixel Loss</p>
+  <h1>⚡ TURBO SHORTS MAKER (ANTI-BLOCK HD)</h1>
+  <p style="color:#cbd5e1; margin:4px 0 0 0; font-size:14px;">Triple-Engine Unblocker • Parallel Multi-Core Cutting • Zero Pixel Loss</p>
 </div>
 """, unsafe_allow_html=True)
 
 OUTPUT_DIR = "/tmp/my_shorts"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-UA_MAP = {
-    "ANDROID_VR": "com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
-    "IOS": "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)",
-    "MWEB": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
-}
 
 def get_id(url):
     p_list = [r"(?:v=|/)([0-9A-Za-z_-]{11}).*", r"youtu[.]be/([0-9A-Za-z_-]{11})", r"shorts/([0-9A-Za-z_-]{11})", r"live/([0-9A-Za-z_-]{11})"]
@@ -34,40 +28,62 @@ def get_id(url):
         if m: return m.group(1)
     return None
 
+def get_duration(file_path, default_dur=300):
+    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path], capture_output=True, text=True)
+    try:
+        return int(float(r.stdout.strip()))
+    except Exception:
+        return default_dur
+
 def turbo_download_source(yt_url, vid_id):
     out_raw = os.path.join(OUTPUT_DIR, f"{vid_id}_source.mp4")
     if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
-        r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", out_raw], capture_output=True, text=True)
-        dur = int(float(r.stdout.strip())) if r.returncode == 0 and r.stdout.strip() else 300
-        return out_raw, dur
+        return out_raw, get_duration(out_raw), "Cached"
 
-    for c_name in ["ANDROID_VR", "IOS", "MWEB", "WEB_EMBED"]:
+    last_err = ""
+
+    # ENGINE 1: yt-dlp Multi-Client + Aria2c 16x Turbo (Bypasses Cloud Blocks Fast!)
+    ytdlp_clients = [
+        "youtube:player_client=android_vr,tv_downgraded",
+        "youtube:player_client=ios,mweb",
+        "youtube:player_client=web_embedded,tv"
+    ]
+    for c_arg in ytdlp_clients:
+        if os.path.exists(out_raw): os.remove(out_raw)
+        cmd_ydl = [
+            "yt-dlp", "-4", "--geo-bypass", "--no-warnings", "--no-playlist",
+            "--extractor-args", c_arg,
+            "-f", "best[height<=720][ext=mp4]/best[ext=mp4]/best",
+            "--downloader", "aria2c",
+            "--downloader-args", "aria2c:-x 16 -s 16 -k 1M",
+            "-o", out_raw, yt_url.strip()
+        ]
+        try:
+            r = subprocess.run(cmd_ydl, capture_output=True, text=True, timeout=45)
+            if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
+                return out_raw, get_duration(out_raw), f"yt-dlp ({c_arg.split('=')[1]})"
+            last_err = r.stderr[-200:] if r.stderr else "yt-dlp empty"
+        except Exception as e:
+            last_err = str(e)
+
+    # ENGINE 2: pytubefix with NodeJS PO-Token (WEB, ANDROID_VR, IOS, MWEB)
+    for c_name in ["WEB", "ANDROID_VR", "IOS", "MWEB", "WEB_EMBED", "TV"]:
         try:
             yt = YouTube(yt_url.strip(), client=c_name)
-            dur = int(yt.length) if yt.length else 300
             ys = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
             if not ys:
                 ys = yt.streams.filter(file_extension='mp4').first()
-
-            if ys and ys.url:
+            if ys:
                 if os.path.exists(out_raw): os.remove(out_raw)
-                ua = UA_MAP.get(c_name, UA_MAP["MWEB"])
-                aria_cmd = [
-                    "aria2c", "-x", "16", "-s", "16", "-k", "1M",
-                    f"--user-agent={ua}", "--max-overall-download-limit=0",
-                    "-d", OUTPUT_DIR, "-o", f"{vid_id}_source.mp4", ys.url
-                ]
-                subprocess.run(aria_cmd, capture_output=True, timeout=25)
-
-                if not os.path.exists(out_raw) or os.path.getsize(out_raw) < 100000:
-                    with ThreadPoolExecutor(max_workers=1) as ex:
-                        ex.submit(ys.download, output_path=OUTPUT_DIR, filename=f"{vid_id}_source.mp4").result(timeout=35)
-
+                with ThreadPoolExecutor(max_workers=1) as ex:
+                    ex.submit(ys.download, output_path=OUTPUT_DIR, filename=f"{vid_id}_source.mp4").result(timeout=45)
                 if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
-                    return out_raw, dur
-        except Exception:
+                    return out_raw, get_duration(out_raw, int(yt.length) if yt.length else 300), f"pytubefix ({c_name})"
+        except Exception as e:
+            last_err = str(e)
             continue
-    return None, 0
+
+    return None, 0, last_err
 
 def fast_cut_worker(args):
     i, st_time, dur, local_media, vid_id, res_choice, frame_mode = args
@@ -112,10 +128,10 @@ if st.button("⚡ TURBO GENERATE SHORTS NOW"):
     if not vid_id:
         st.error("❌ Bhai sahi YouTube link daalo!")
     else:
-        with st.spinner("🚀 Step 1/2: 16x Aria2c Turbo Engine se Video khinch rahe hain (5-10 sec)..."):
-            local_media, total_dur = turbo_download_source(yt_url, vid_id)
+        with st.spinner("🚀 Step 1/2: Triple-Engine Unblocker se Video pull ho rahi hai (10-20 sec)..."):
+            local_media, total_dur, engine_used = turbo_download_source(yt_url, vid_id)
         if not local_media:
-            st.error("❌ Video stream block hui, dobara try karein!")
+            st.error(f"❌ Video stream block hui ({engine_used}), dobara try karein!")
         else:
             clip_len = 35 if total_dur >= 120 else max(15, total_dur // max(2, clip_count))
             step = max(10, max(clip_len, total_dur - clip_len - 5) // max(1, clip_count))
