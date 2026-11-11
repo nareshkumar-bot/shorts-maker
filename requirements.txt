@@ -1,2 +1,4 @@
 streamlit
-pytubefix
+pytubefix[nodejs]
+nodejs-bin
+yt-dlp
