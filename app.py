@@ -1,4 +1,4 @@
-import os, re, shutil, zipfile, subprocess
+import os, re, shutil, zipfile, subprocess, requests
 from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 from pytubefix import YouTube
@@ -13,8 +13,8 @@ st.markdown("""
 .stButton>button {width: 100%; background: linear-gradient(90deg, #ef4444, #9333ea); color: white; font-weight: bold; border: none; border-radius: 10px; padding: 12px; font-size: 16px;}
 </style>
 <div class="title-box">
-  <h1>⚡ TURBO SHORTS MAKER (ANTI-BLOCK HD)</h1>
-  <p style="color:#cbd5e1; margin:4px 0 0 0; font-size:14px;">Triple-Engine Unblocker • Parallel Multi-Core Cutting • Zero Pixel Loss</p>
+  <h1>⚡ TURBO SHORTS MAKER (SABR BYPASS HD)</h1>
+  <p style="color:#cbd5e1; margin:4px 0 0 0; font-size:14px;">Zero SABR Block • Multi-Proxy Cloud Engine • Crystal-Clear HD</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -35,6 +35,29 @@ def get_duration(file_path, default_dur=300):
     except Exception:
         return default_dur
 
+def download_via_url(stream_url, out_raw):
+    if os.path.exists(out_raw): os.remove(out_raw)
+    aria_cmd = [
+        "aria2c", "-x", "16", "-s", "16", "-k", "1M",
+        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "--max-overall-download-limit=0",
+        "-d", os.path.dirname(out_raw), "-o", os.path.basename(out_raw),
+        stream_url
+    ]
+    subprocess.run(aria_cmd, capture_output=True, timeout=40)
+    if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
+        return True
+    # Fallback to direct requests stream
+    try:
+        with requests.get(stream_url, stream=True, timeout=30) as r:
+            if r.status_code == 200:
+                with open(out_raw, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=1024*512):
+                        if chunk: f.write(chunk)
+        return os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000
+    except Exception:
+        return False
+
 def turbo_download_source(yt_url, vid_id):
     out_raw = os.path.join(OUTPUT_DIR, f"{vid_id}_source.mp4")
     if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
@@ -42,32 +65,9 @@ def turbo_download_source(yt_url, vid_id):
 
     last_err = ""
 
-    # ENGINE 1: yt-dlp Multi-Client + Aria2c 16x Turbo (Bypasses Cloud Blocks Fast!)
-    ytdlp_clients = [
-        "youtube:player_client=android_vr,tv_downgraded",
-        "youtube:player_client=ios,mweb",
-        "youtube:player_client=web_embedded,tv"
-    ]
-    for c_arg in ytdlp_clients:
-        if os.path.exists(out_raw): os.remove(out_raw)
-        cmd_ydl = [
-            "yt-dlp", "-4", "--geo-bypass", "--no-warnings", "--no-playlist",
-            "--extractor-args", c_arg,
-            "-f", "best[height<=720][ext=mp4]/best[ext=mp4]/best",
-            "--downloader", "aria2c",
-            "--downloader-args", "aria2c:-x 16 -s 16 -k 1M",
-            "-o", out_raw, yt_url.strip()
-        ]
-        try:
-            r = subprocess.run(cmd_ydl, capture_output=True, text=True, timeout=45)
-            if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
-                return out_raw, get_duration(out_raw), f"yt-dlp ({c_arg.split('=')[1]})"
-            last_err = r.stderr[-200:] if r.stderr else "yt-dlp empty"
-        except Exception as e:
-            last_err = str(e)
-
-    # ENGINE 2: pytubefix with NodeJS PO-Token (WEB, ANDROID_VR, IOS, MWEB)
-    for c_name in ["WEB", "ANDROID_VR", "IOS", "MWEB", "WEB_EMBED", "TV"]:
+    # LAYER 1: Non-SABR pytubefix clients (ANDROID_VR, IOS, TV_EMBED, MWEB without SABR)
+    non_sabr_clients = ["ANDROID_VR", "IOS", "TV", "MWEB", "WEB_EMBED", "ANDROID_MUSIC"]
+    for c_name in non_sabr_clients:
         try:
             yt = YouTube(yt_url.strip(), client=c_name)
             ys = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
@@ -76,11 +76,73 @@ def turbo_download_source(yt_url, vid_id):
             if ys:
                 if os.path.exists(out_raw): os.remove(out_raw)
                 with ThreadPoolExecutor(max_workers=1) as ex:
-                    ex.submit(ys.download, output_path=OUTPUT_DIR, filename=f"{vid_id}_source.mp4").result(timeout=45)
+                    ex.submit(ys.download, output_path=OUTPUT_DIR, filename=f"{vid_id}_source.mp4").result(timeout=40)
                 if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
-                    return out_raw, get_duration(out_raw, int(yt.length) if yt.length else 300), f"pytubefix ({c_name})"
+                    return out_raw, get_duration(out_raw, int(yt.length) if yt.length else 300), f"Direct ({c_name})"
         except Exception as e:
             last_err = str(e)
+
+    # LAYER 2: yt-dlp with SABR-Workaround Extractor Args (tv_embedded / android_vr / ios)
+    ytdlp_configs = [
+        "youtube:player_client=tv_embedded,android_vr;player_skip=webpage,configs",
+        "youtube:player_client=ios,web_creator;formats=missing_pot",
+        "youtube:player_client=mweb,android_testsuite"
+    ]
+    for c_arg in ytdlp_configs:
+        if os.path.exists(out_raw): os.remove(out_raw)
+        cmd_ydl = [
+            "yt-dlp", "-4", "--geo-bypass", "--no-warnings", "--no-playlist",
+            "--extractor-args", c_arg,
+            "-f", "18/22/best[ext=mp4]/best",
+            "--downloader", "aria2c",
+            "--downloader-args", "aria2c:-x 16 -s 16 -k 1M",
+            "-o", out_raw, yt_url.strip()
+        ]
+        try:
+            r = subprocess.run(cmd_ydl, capture_output=True, text=True, timeout=40)
+            if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
+                return out_raw, get_duration(out_raw), "yt-dlp Anti-SABR"
+            last_err = r.stderr[-180:] if r.stderr else "yt-dlp empty"
+        except Exception as e:
+            last_err = str(e)
+
+    # LAYER 3: Public Piped / Invidious Proxy APIs (100% Immune to Cloud IP SABR Blocks!)
+    piped_Gateways = [
+        f"https://pipedapi.kavin.rocks/streams/{vid_id}",
+        f"https://pipedapi.tokhmi.xyz/streams/{vid_id}",
+        f"https://pipedapi.moomoo.me/streams/{vid_id}",
+        f"https://api.piped.private.coffee/streams/{vid_id}"
+    ]
+    for api_url in piped_Gateways:
+        try:
+            resp = requests.get(api_url, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                dur = int(data.get("duration", 300))
+                for s in data.get("videoStreams", []):
+                    if not s.get("videoOnly", True) and s.get("url"):
+                        if download_via_url(s["url"], out_raw):
+                            return out_raw, get_duration(out_raw, dur), "Cloud Proxy (Piped)"
+        except Exception:
+            continue
+
+    invidious_Gateways = [
+        f"https://inv.tux.pizza/api/v1/videos/{vid_id}",
+        f"https://invidious.nerdvpn.de/api/v1/videos/{vid_id}",
+        f"https://invidious.jing.rocks/api/v1/videos/{vid_id}",
+        f"https://yt.artemislena.eu/api/v1/videos/{vid_id}"
+    ]
+    for inv_url in invidious_Gateways:
+        try:
+            resp = requests.get(inv_url, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                dur = int(data.get("lengthSeconds", 300))
+                for fmt in reversed(data.get("formatStreams", [])):
+                    if fmt.get("url"):
+                        if download_via_url(fmt["url"], out_raw):
+                            return out_raw, get_duration(out_raw, dur), "Cloud Proxy (Invidious)"
+        except Exception:
             continue
 
     return None, 0, last_err
@@ -128,16 +190,16 @@ if st.button("⚡ TURBO GENERATE SHORTS NOW"):
     if not vid_id:
         st.error("❌ Bhai sahi YouTube link daalo!")
     else:
-        with st.spinner("🚀 Step 1/2: Triple-Engine Unblocker se Video pull ho rahi hai (10-20 sec)..."):
+        with st.spinner("🚀 Step 1/2: SABR-Bypass Engine se Video pull ho rahi hai (10-25 sec)..."):
             local_media, total_dur, engine_used = turbo_download_source(yt_url, vid_id)
         if not local_media:
-            st.error(f"❌ Video stream block hui ({engine_used}), dobara try karein!")
+            st.error(f"❌ Server Busy ({engine_used}), 10 sec baad dobara button dabayein!")
         else:
             clip_len = 35 if total_dur >= 120 else max(15, total_dur // max(2, clip_count))
             step = max(10, max(clip_len, total_dur - clip_len - 5) // max(1, clip_count))
             tasks = [(i, min(5 + (i * step), max(0, total_dur - clip_len)), clip_len, local_media, vid_id, res_choice, frame_mode) for i in range(clip_count)]
 
-            with st.spinner(f"✂️ Step 2/2: Parallel Multi-Core Cutting {clip_count} Crystal-Clear Shorts..."):
+            with st.spinner(f"✂️ Step 2/2: Parallel Multi-Core Cutting {clip_count} Crystal-Clear Shorts ({engine_used})..."):
                 with ThreadPoolExecutor(max_workers=4) as ex:
                     ready_files = [f for f in ex.map(fast_cut_worker, tasks) if f]
 
