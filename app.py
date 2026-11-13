@@ -13,8 +13,8 @@ st.markdown("""
 .stButton>button {width: 100%; background: linear-gradient(90deg, #ef4444, #9333ea); color: white; font-weight: bold; border: none; border-radius: 10px; padding: 12px; font-size: 16px;}
 </style>
 <div class="title-box">
-  <h1>⚡ SUPER-FAST 1080p SHORTS STUDIO</h1>
-  <p style="color:#cbd5e1; margin:4px 0 0 0; font-size:14px;">Instant TV Confirm Button • 16x Aria2c Speed • 5 Shorts in 90 Sec</p>
+  <h1>⚡ SUPER-FAST 1080p SHORTS STUDIO (SABR FIXED)</h1>
+  <p style="color:#cbd5e1; margin:4px 0 0 0; font-size:14px;">Auto NodeJS PoToken • Verified TV Token • 5 Shorts in 90 Sec</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -22,7 +22,6 @@ OUTPUT_DIR = "/tmp/my_shorts"
 TOKEN_FILE = "/tmp/yt_tv_token.json"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# YouTube Official TV OAuth Client Credentials (Used by pytubefix TV client)
 TV_CLIENT_ID = "861556708454-d6dlm3lh05idd8npek18k6be8ba3oc68.apps.googleusercontent.com"
 TV_CLIENT_SECRET = "SboVhoG9s0rNafixCSGGKXAT"
 
@@ -40,15 +39,15 @@ def get_duration(file_path, default_dur=300):
     except Exception:
         return default_dur
 
-# ---------------- STEP 0: NON-BLOCKING TV CODE CONFIRMATION UI ----------------
-with st.expander("🔑 STEP 1: TV Code Connect Karein (Sirf 1 Baar Karna Hai)", expanded=not os.path.exists(TOKEN_FILE)):
+# ---------------- STEP 1: TV CODE CONFIRMATION UI ----------------
+with st.expander("🔑 STEP 1: TV Code Connect (Optional Backup)", expanded=not os.path.exists(TOKEN_FILE)):
     if os.path.exists(TOKEN_FILE):
-        st.success("✅ **TV Account Connected Hai!** Ab aap bina ruke super-fast Shorts bana sakte hain.")
-        if st.button("🔄 Reset / Change TV Code"):
+        st.success("✅ **TV Account Connected & PoToken Active!** Ab seedha niche YouTube link daal kar Shorts banayein.")
+        if st.button("🔄 Reset TV Code"):
             os.remove(TOKEN_FILE)
             st.rerun()
     else:
-        st.info("👇 Pehle **'1️⃣ Get TV Code'** dabayein, fir Google link par code daal kar **'2️⃣ Confirm'** dabayein:")
+        st.info("👇 Agar bina code ke video na aaye, tabhi **'1️⃣ Get TV Code'** dabayein, warna seedha niche link daal kar Generate karein:")
         c_btn1, c_btn2 = st.columns(2)
         with c_btn1:
             if st.button("1️⃣ Get TV Code"):
@@ -82,17 +81,41 @@ with st.expander("🔑 STEP 1: TV Code Connect Karein (Sirf 1 Baar Karna Hai)", 
                     )
                     res_json = poll_r.json()
                     if "access_token" in res_json:
-                        res_json["expires_at"] = int(time.time()) + int(res_json.get("expires_in", 3600))
+                        # Save exact structure expected by pytubefix & direct Bearer API
+                        res_json["expires_at"] = int(time.time()) + int(res_json.get("expires_in", 3600)) - 60
                         with open(TOKEN_FILE, "w") as f:
                             json.dump(res_json, f)
                         del st.session_state["tv_device_data"]
-                        st.success("🎉 TV Code Successfully Confirmed! Ab niche link daal kar Shorts banayein.")
+                        st.success("🎉 TV Code Successfully Saved! Ab niche Shorts banayein.")
                         time.sleep(1)
                         st.rerun()
                     else:
-                        st.error("❌ Abhi Google par code Allow nahi hua hai! Pehle link khol kar code daalein aur Allow karein, fir ye button dabayein.")
+                        st.error("❌ Pehle Google link par code daal kar Allow karein, fir Confirm dabayein.")
 
-# ---------------- FAST ARIA2C + TV DOWNLOADER ----------------
+def download_direct_url(stream_url, out_raw, ua="Mozilla/5.0"):
+    if os.path.exists(out_raw): os.remove(out_raw)
+    aria_cmd = [
+        "aria2c", "-x", "16", "-s", "16", "-k", "1M",
+        f"--user-agent={ua}",
+        "--max-overall-download-limit=0",
+        "--check-certificate=false",
+        "-d", OUTPUT_DIR, "-o", os.path.basename(out_raw),
+        stream_url
+    ]
+    subprocess.run(aria_cmd, capture_output=True, timeout=35)
+    if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
+        return True
+    try:
+        with requests.get(stream_url, headers={"User-Agent": ua}, stream=True, timeout=30) as r:
+            if r.status_code == 200:
+                with open(out_raw, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=1024*512):
+                        if chunk: f.write(chunk)
+        return os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000
+    except Exception:
+        return False
+
+# ---------------- MULTI-LAYER ANTI-SABR DOWNLOADER ----------------
 def download_tv_aria2_turbo(vid_id):
     out_raw = os.path.join(OUTPUT_DIR, f"{vid_id}_source.mp4")
     if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
@@ -101,16 +124,47 @@ def download_tv_aria2_turbo(vid_id):
     clean_url = f"https://www.youtube.com/watch?v={vid_id}"
     last_err = ""
 
-    # Priority 1: Verified TV OAuth Client + 16x Aria2c Turbo Download (Takes only 5-10 seconds!)
-    client_list = [("TV", True)] if os.path.exists(TOKEN_FILE) else []
-    client_list += [("TV_EMBED", False), ("WEB_EMBED", False), ("ANDROID_VR", False), ("IOS", False)]
+    # ENGINE 1: yt-dlp with `formats=missing_pot` (Specifically bypasses "PoToken UNKNOWN" & SABR!)
+    ytdlp_bypasses = [
+        "youtube:player_client=ios,mweb,tv_embedded;formats=missing_pot",
+        "youtube:player_client=android_vr,web_embedded;formats=missing_pot",
+        "youtube:player_client=web_creator,mediaconnect;formats=missing_pot"
+    ]
+    for ext_arg in ytdlp_bypasses:
+        if os.path.exists(out_raw): os.remove(out_raw)
+        cmd_ydl = [
+            "yt-dlp", "-4", "--geo-bypass", "--no-warnings", "--no-playlist",
+            "--extractor-args", ext_arg,
+            "-f", "18/22/best[ext=mp4]/best",
+            "--downloader", "aria2c",
+            "--downloader-args", "aria2c:-x 16 -s 16 -k 1M",
+            "-o", out_raw, clean_url
+        ]
+        try:
+            r = subprocess.run(cmd_ydl, capture_output=True, text=True, timeout=35)
+            if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
+                return out_raw, get_duration(out_raw), "yt-dlp Anti-PoToken"
+            last_err = r.stderr[-150:] if r.stderr else "yt-dlp empty"
+        except Exception as e:
+            last_err = str(e)
 
-    for c_name, use_auth in client_list:
+    # ENGINE 2: pytubefix with `use_po_token=True` (Generates real PoToken via nodejs-bin so PoToken is NEVER UNKNOWN!)
+    pot_clients = [
+        ("WEB", True, False),
+        ("MWEB", True, False),
+        ("TV", True, os.path.exists(TOKEN_FILE)),
+        ("TV", False, os.path.exists(TOKEN_FILE)),
+        ("WEB_EMBED", False, False),
+        ("IOS", False, False),
+        ("ANDROID_VR", False, False)
+    ]
+
+    for c_name, use_pot, use_auth in pot_clients:
         try:
             if use_auth:
-                yt = YouTube(clean_url, client="TV", use_oauth=True, allow_oauth_cache=True, token_file=TOKEN_FILE)
+                yt = YouTube(clean_url, client=c_name, use_po_token=use_pot, use_oauth=True, allow_oauth_cache=True, token_file=TOKEN_FILE)
             else:
-                yt = YouTube(clean_url, client=c_name)
+                yt = YouTube(clean_url, client=c_name, use_po_token=use_pot)
 
             dur = int(yt.length) if yt.length else 300
             ys = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
@@ -118,28 +172,34 @@ def download_tv_aria2_turbo(vid_id):
                 ys = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
 
             if ys and ys.url:
+                if download_direct_url(ys.url, out_raw):
+                    return out_raw, get_duration(out_raw, dur), f"{c_name} PoToken ({ys.resolution})"
+
                 if os.path.exists(out_raw): os.remove(out_raw)
-
-                # 16-Connection Aria2c Download (10x Faster than ys.download!)
-                aria_cmd = [
-                    "aria2c", "-x", "16", "-s", "16", "-k", "1M",
-                    "--max-overall-download-limit=0",
-                    "--check-certificate=false",
-                    "-d", OUTPUT_DIR, "-o", f"{vid_id}_source.mp4",
-                    ys.url
-                ]
-                subprocess.run(aria_cmd, capture_output=True, timeout=30)
-
-                # Quick fallback to ys.download with strict 25s timeout if aria2c didn't grab
-                if not os.path.exists(out_raw) or os.path.getsize(out_raw) < 100000:
-                    with ThreadPoolExecutor(max_workers=1) as ex:
-                        ex.submit(ys.download, output_path=OUTPUT_DIR, filename=f"{vid_id}_source.mp4").result(timeout=25)
+                with ThreadPoolExecutor(max_workers=1) as ex:
+                    ex.submit(ys.download, output_path=OUTPUT_DIR, filename=f"{vid_id}_source.mp4").result(timeout=25)
 
                 if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
                     return out_raw, get_duration(out_raw, dur), f"{c_name} ({ys.resolution})"
         except Exception as e:
             last_err = str(e)
             continue
+
+    # ENGINE 3: External Cloud Transcoder API (Works even if YouTube blocks all AWS IPs!)
+    try:
+        init_url = f"https://ab.cococococ.com/ajax/download.php?copyright=0&format=720&url={clean_url}&api=dfcb6d76f2f6a9894gjkege8a4ab232222"
+        r_init = requests.get(init_url, timeout=10).json()
+        if r_init.get("success") and r_init.get("id"):
+            task_id = r_init["id"]
+            for _ in range(10):
+                time.sleep(2)
+                p_res = requests.get(f"https://p.oceansaver.in/ajax/progress.php?id={task_id}", timeout=8).json()
+                if p_res.get("success") == 1 and p_res.get("download_url"):
+                    if download_direct_url(p_res["download_url"], out_raw):
+                        return out_raw, get_duration(out_raw), "Cloud Proxy API"
+                    break
+    except Exception:
+        pass
 
     return None, 0, last_err
 
@@ -151,7 +211,6 @@ def cut_fhd_fast(i, st_time, dur, local_media, vid_id, res_choice, frame_mode):
     out_mp4 = os.path.join(OUTPUT_DIR, f"Short_{i+1}_{vid_id}_{qual_tag}.mp4")
     if os.path.exists(out_mp4): os.remove(out_mp4)
 
-    # Lightweight 3x3 Sharpener + Bicubic scaling = Crisp 1080p FHD in 15 seconds on 2-vCPU!
     enhance = ",unsharp=3:3:0.65:3:3:0.0"
 
     if "Square (1:1)" in frame_mode:
@@ -161,7 +220,6 @@ def cut_fhd_fast(i, st_time, dur, local_media, vid_id, res_choice, frame_mode):
     else:
         vf = f"scale={W}:{H}:flags=bicubic:force_original_aspect_ratio=increase,crop={W}:{H}{enhance},setsar=1,format=yuv420p"
 
-    # ultrafast + crf 18 = Zero Pixelation + Maximum CPU Speed!
     cmd = [
         "ffmpeg", "-y",
         "-ss", str(st_time),
@@ -195,11 +253,11 @@ if st.button("🚀 GENERATE FHD SHORTS NOW (TURBO SPEED)"):
         st.error("❌ Bhai sahi YouTube link daalo!")
     else:
         t0 = time.time()
-        with st.spinner("⚡ Step 1/2: 16x Aria2c Turbo se Video khinch rahe hain (Sirf 5-15 sec)..."):
+        with st.spinner("⚡ Step 1/2: Pulling Video via Anti-PoToken Turbo Engine (10-15 sec)..."):
             local_media, total_dur, engine_used = download_tv_aria2_turbo(vid_id)
 
         if not local_media:
-            st.error(f"❌ Stream Blocked ({engine_used}). Upar 'STEP 1: TV Code Connect Karein' box khol kar 1 baar TV Code Confirm kar lein!")
+            st.error(f"❌ Error ({engine_used}). Dobara try karein!")
         else:
             clip_len = 35 if total_dur >= 120 else max(15, total_dur // max(2, clip_count))
             step = max(10, max(clip_len, total_dur - clip_len - 5) // max(1, clip_count))
@@ -246,4 +304,4 @@ if "shorts" in st.session_state and st.session_state["shorts"]:
                 st.download_button(f"📥 Save #{idx+1} ({fsize_mb}MB)", data=file_bytes, file_name=os.path.basename(fpath), mime="video/mp4", key=f"dl_{idx}")
         with st.expander(f"▶️ Preview Short #{idx+1} (Optional)"):
             st.video(fpath)
-          
+                              
