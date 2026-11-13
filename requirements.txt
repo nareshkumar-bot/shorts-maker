@@ -1,2 +1,3 @@
 streamlit
-pytubefix
+pytubefix[nodejs]
+nodejs-bin
