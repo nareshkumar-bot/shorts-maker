@@ -1,3 +1,6 @@
 streamlit
-pytubefix
+pytubefix[nodejs]
+nodejs-bin
+yt-dlp
 requests
+bgutil-ytdlp-pot-provider
