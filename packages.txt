@@ -1,4 +1,2 @@
 ffmpeg
-aria2
 nodejs
-npm
