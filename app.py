@@ -13,12 +13,13 @@ st.markdown("""
 .stButton>button {width: 100%; background: linear-gradient(90deg, #ef4444, #9333ea); color: white; font-weight: bold; border: none; border-radius: 10px; padding: 12px; font-size: 16px;}
 </style>
 <div class="title-box">
-  <h1>⚡ PRO SHORTS MAKER (TV TURBO + 1080p FHD)</h1>
-  <p style="color:#cbd5e1; margin:4px 0 0 0; font-size:14px;">Pure TV/VR Fast Engine • True 1080p FHD • Square 1:1 in 9:16</p>
+  <h1>⚡ PRO SHORTS MAKER (PO-TOKEN + TV FHD)</h1>
+  <p style="color:#cbd5e1; margin:4px 0 0 0; font-size:14px;">Auto PoToken Generator • True 1080p FHD • Square 1:1 in 9:16</p>
 </div>
 """, unsafe_allow_html=True)
 
 OUTPUT_DIR = "/tmp/my_shorts"
+TOKEN_FILE = "/tmp/yt_token_cache.json"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def get_id(url):
@@ -35,32 +36,59 @@ def get_duration(file_path, default_dur=300):
     except Exception:
         return default_dur
 
-def download_tv_fast(yt_url, vid_id):
+def custom_oauth_verifier(verification_url, user_code):
+    st.warning(f"🔑 **1-Time Cloud Server Unlock:** YouTube ne Cloud IP par verification manga hai.\n\n1. Is link par tap karein: **[{verification_url}]({verification_url})**\n2. Ye code daalein: **`{user_code}`**\n\n*(Jaise hi aap phone me code daal kar Allow karenge, video apne aap download ho jayegi aur fir kabhi error nahi aayega!)*")
+
+def download_tv_fast(yt_url, vid_id, use_tv_login=False):
     out_raw = os.path.join(OUTPUT_DIR, f"{vid_id}_source.mp4")
     if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
-        return out_raw, get_duration(out_raw), "Cached TV Stream"
+        return out_raw, get_duration(out_raw), "Cached Stream"
 
     clean_url = f"https://www.youtube.com/watch?v={vid_id}"
     last_err = ""
 
-    # ONLY the working fast clients (TV & Embedded first, just like the version that worked!)
-    working_clients = ["TV", "TV_EMBED", "WEB_EMBED", "ANDROID_VR", "IOS"]
-
-    for c_name in working_clients:
+    # MODE A: If user enabled 1-Time TV OAuth (100% Immune to SABR & PoToken Errors Forever!)
+    if use_tv_login or os.path.exists(TOKEN_FILE):
         try:
-            yt = YouTube(clean_url, client=c_name)
+            yt = YouTube(
+                clean_url,
+                client="TV",
+                use_oauth=True,
+                allow_oauth_cache=True,
+                token_file=TOKEN_FILE,
+                oauth_verifier=custom_oauth_verifier
+            )
             dur = int(yt.length) if yt.length else 300
+            ys = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+            if not ys:
+                ys = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
+            if ys:
+                if os.path.exists(out_raw): os.remove(out_raw)
+                ys.download(output_path=OUTPUT_DIR, filename=f"{vid_id}_source.mp4")
+                if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
+                    return out_raw, get_duration(out_raw, dur), f"TV Verified ({ys.resolution})"
+        except Exception as e:
+            last_err = str(e)
 
-            # 1. Try grabbing highest resolution progressive stream first (Fastest & Never gives 403!)
+    # MODE B: Auto PoToken Clients (WEB with nodejs PoToken + Embedded Clients)
+    configs = [
+        ("WEB", True),
+        ("MWEB", True),
+        ("WEB_EMBED", False),
+        ("TV_EMBED", False),
+        ("ANDROID_VR", False)
+    ]
+
+    for c_name, need_pot in configs:
+        try:
+            yt = YouTube(clean_url, client=c_name, use_po_token=need_pot)
+            dur = int(yt.length) if yt.length else 300
             ys = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
             if not ys:
                 ys = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
 
             if ys:
-                if os.path.exists(out_raw):
-                    os.remove(out_raw)
-
-                # Use pytubefix's internal session download (Guaranteed No 403 Forbidden!)
+                if os.path.exists(out_raw): os.remove(out_raw)
                 with ThreadPoolExecutor(max_workers=1) as ex:
                     ex.submit(ys.download, output_path=OUTPUT_DIR, filename=f"{vid_id}_source.mp4").result(timeout=45)
 
@@ -78,12 +106,9 @@ def fast_cut_fhd_worker(args):
     W, H = (1080, 1920) if is_fhd else (720, 1280)
     qual_tag = "1080p_FHD" if is_fhd else "720p_HD"
     out_mp4 = os.path.join(OUTPUT_DIR, f"Short_{i+1}_{vid_id}_{qual_tag}.mp4")
-    if os.path.exists(out_mp4):
-        os.remove(out_mp4)
+    if os.path.exists(out_mp4): os.remove(out_mp4)
 
-    # PRO FHD ENHANCER: Lanczos Upscaling + Contrast Adaptive Sharpening + Color Pop (Fixes low-res source into crisp 1080p!)
     enhance = ",unsharp=5:5:0.8:3:3:0.4,eq=contrast=1.04:saturation=1.08"
-
     if "Square (1:1)" in frame_mode:
         vf = f"scale={W}:{W}:flags=lanczos:force_original_aspect_ratio=increase,crop={W}:{W}{enhance},pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,format=yuv420p"
     elif "Wide Fit" in frame_mode:
@@ -91,12 +116,8 @@ def fast_cut_fhd_worker(args):
     else:
         vf = f"scale={W}:{H}:flags=lanczos:force_original_aspect_ratio=increase,crop={W}:{H}{enhance},setsar=1,format=yuv420p"
 
-    # High-Bitrate FHD encoding (-crf 17, 10Mbps maxrate) so downloaded video never pixelates!
     cmd = [
-        "ffmpeg", "-y",
-        "-ss", str(st_time),
-        "-i", local_media,
-        "-t", str(dur),
+        "ffmpeg", "-y", "-ss", str(st_time), "-i", local_media, "-t", str(dur),
         "-vf", vf,
         "-c:v", "libx264", "-preset", "veryfast",
         "-crf", "17", "-maxrate", "10000k", "-bufsize", "20000k",
@@ -115,6 +136,8 @@ with col2:
 
 frame_mode = st.radio("📐 Crop & Frame Ratio:", ["Square (1:1) in 9:16 [Less Crop ⭐]", "Full Vertical (9:16 Zoom)", "Wide Fit (Zero Crop in 9:16)"])
 
+tv_unlock = st.checkbox("🔓 Enable 1-Time TV Code Unlock (Agar Cloud IP par SABR/PoToken error aaye to ispar tick karein)", value=True)
+
 if st.button("⚡ GENERATE FHD SHORTS NOW"):
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -122,16 +145,16 @@ if st.button("⚡ GENERATE FHD SHORTS NOW"):
     if not vid_id:
         st.error("❌ Bhai sahi YouTube link daalo!")
     else:
-        with st.spinner("🚀 Step 1/2: Fast TV Engine se Video pull ho rahi hai (10-15 sec)..."):
-            local_media, total_dur, engine_used = download_tv_fast(yt_url, vid_id)
+        with st.spinner("🚀 Step 1/2: Pulling Video Stream..."):
+            local_media, total_dur, engine_used = download_tv_fast(yt_url, vid_id, tv_unlock)
         if not local_media:
-            st.error(f"❌ Error ({engine_used}). Dobara button dabayein!")
+            st.error(f"❌ Error ({engine_used}). Upar 'Enable 1-Time TV Code Unlock' par tick karke button dabayein!")
         else:
             clip_len = 35 if total_dur >= 120 else max(15, total_dur // max(2, clip_count))
             step = max(10, max(clip_len, total_dur - clip_len - 5) // max(1, clip_count))
             tasks = [(i, min(5 + (i * step), max(0, total_dur - clip_len)), clip_len, local_media, vid_id, res_choice, frame_mode) for i in range(clip_count)]
 
-            with st.spinner(f"✂️ Step 2/2: Cutting & Upscaling {clip_count} Shorts into True 1080p FHD ({engine_used})..."):
+            with st.spinner(f"✂️ Step 2/2: Cutting {clip_count} Shorts in True 1080p FHD ({engine_used})..."):
                 with ThreadPoolExecutor(max_workers=4) as ex:
                     ready_files = [f for f in ex.map(fast_cut_fhd_worker, tasks) if f]
 
@@ -164,4 +187,4 @@ if "shorts" in st.session_state and st.session_state["shorts"]:
                 st.download_button(f"📥 Save #{idx+1} ({fsize_mb}MB)", data=file_bytes, file_name=os.path.basename(fpath), mime="video/mp4", key=f"dl_{idx}")
         with st.expander(f"▶️ Preview Short #{idx+1} (Optional)"):
             st.video(fpath)
-      
+          
