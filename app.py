@@ -1,7 +1,6 @@
-import os, re, time, shutil, zipfile, json, subprocess, requests
+import os, re, time, shutil, zipfile, subprocess, requests
 from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
-from pytubefix import YouTube
 
 st.set_page_config(page_title="SuperFast FHD Shorts Maker", page_icon="⚡", layout="centered")
 
@@ -13,17 +12,13 @@ st.markdown("""
 .stButton>button {width: 100%; background: linear-gradient(90deg, #ef4444, #9333ea); color: white; font-weight: bold; border: none; border-radius: 10px; padding: 12px; font-size: 16px;}
 </style>
 <div class="title-box">
-  <h1>⚡ SUPER-FAST 1080p SHORTS STUDIO (SABR FIXED)</h1>
-  <p style="color:#cbd5e1; margin:4px 0 0 0; font-size:14px;">Auto NodeJS PoToken • Verified TV Token • 5 Shorts in 90 Sec</p>
+  <h1>⚡ PRO SHORTS STUDIO (CLOUD PROXY TURBO)</h1>
+  <p style="color:#cbd5e1; margin:4px 0 0 0; font-size:14px;">Direct Cloud Proxy • Zero PoToken Hang • 1080p FHD</p>
 </div>
 """, unsafe_allow_html=True)
 
 OUTPUT_DIR = "/tmp/my_shorts"
-TOKEN_FILE = "/tmp/yt_tv_token.json"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-TV_CLIENT_ID = "861556708454-d6dlm3lh05idd8npek18k6be8ba3oc68.apps.googleusercontent.com"
-TV_CLIENT_SECRET = "SboVhoG9s0rNafixCSGGKXAT"
 
 def get_id(url):
     p_list = [r"(?:v=|/)([0-9A-Za-z_-]{11}).*", r"youtu[.]be/([0-9A-Za-z_-]{11})", r"shorts/([0-9A-Za-z_-]{11})", r"live/([0-9A-Za-z_-]{11})"]
@@ -39,171 +34,76 @@ def get_duration(file_path, default_dur=300):
     except Exception:
         return default_dur
 
-# ---------------- STEP 1: TV CODE CONFIRMATION UI ----------------
-with st.expander("🔑 STEP 1: TV Code Connect (Optional Backup)", expanded=not os.path.exists(TOKEN_FILE)):
-    if os.path.exists(TOKEN_FILE):
-        st.success("✅ **TV Account Connected & PoToken Active!** Ab seedha niche YouTube link daal kar Shorts banayein.")
-        if st.button("🔄 Reset TV Code"):
-            os.remove(TOKEN_FILE)
-            st.rerun()
-    else:
-        st.info("👇 Agar bina code ke video na aaye, tabhi **'1️⃣ Get TV Code'** dabayein, warna seedha niche link daal kar Generate karein:")
-        c_btn1, c_btn2 = st.columns(2)
-        with c_btn1:
-            if st.button("1️⃣ Get TV Code"):
-                r = requests.post(
-                    "https://www.youtube.com/o/oauth2/device/code",
-                    json={"client_id": TV_CLIENT_ID, "scope": "http://gdata.youtube.com https://www.googleapis.com/auth/youtube-paid-content"},
-                    timeout=10
-                )
-                if r.status_code == 200:
-                    st.session_state["tv_device_data"] = r.json()
-                else:
-                    st.error("❌ Code nahi mila, dobara click karein.")
-
-        if "tv_device_data" in st.session_state:
-            d_data = st.session_state["tv_device_data"]
-            v_url = d_data.get("verification_url", "https://www.google.com/device")
-            u_code = d_data.get("user_code", "")
-            st.warning(f"👉 **Is Link par click karein:** [{v_url}]({v_url})\n\n👉 **Aur ye Code daal kar Allow karein:** `{u_code}`")
-
-            with c_btn2:
-                if st.button("2️⃣ ✅ Maine Code Daal Diya (Confirm)"):
-                    poll_r = requests.post(
-                        "https://www.youtube.com/o/oauth2/token",
-                        data={
-                            "client_id": TV_CLIENT_ID,
-                            "client_secret": TV_CLIENT_SECRET,
-                            "code": d_data["device_code"],
-                            "grant_type": "http://oauth.net/grant_type/device/1.0"
-                        },
-                        timeout=10
-                    )
-                    res_json = poll_r.json()
-                    if "access_token" in res_json:
-                        # Save exact structure expected by pytubefix & direct Bearer API
-                        res_json["expires_at"] = int(time.time()) + int(res_json.get("expires_in", 3600)) - 60
-                        with open(TOKEN_FILE, "w") as f:
-                            json.dump(res_json, f)
-                        del st.session_state["tv_device_data"]
-                        st.success("🎉 TV Code Successfully Saved! Ab niche Shorts banayein.")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error("❌ Pehle Google link par code daal kar Allow karein, fir Confirm dabayein.")
-
-def download_direct_url(stream_url, out_raw, ua="Mozilla/5.0"):
-    if os.path.exists(out_raw): os.remove(out_raw)
-    aria_cmd = [
-        "aria2c", "-x", "16", "-s", "16", "-k", "1M",
-        f"--user-agent={ua}",
-        "--max-overall-download-limit=0",
-        "--check-certificate=false",
-        "-d", OUTPUT_DIR, "-o", os.path.basename(out_raw),
-        stream_url
-    ]
-    subprocess.run(aria_cmd, capture_output=True, timeout=35)
-    if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
-        return True
+def download_file(url, out_path):
+    if os.path.exists(out_path): os.remove(out_path)
     try:
-        with requests.get(stream_url, headers={"User-Agent": ua}, stream=True, timeout=30) as r:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        with requests.get(url, headers=headers, stream=True, timeout=35) as r:
             if r.status_code == 200:
-                with open(out_raw, "wb") as f:
+                with open(out_path, "wb") as f:
                     for chunk in r.iter_content(chunk_size=1024*512):
                         if chunk: f.write(chunk)
-        return os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000
+        return os.path.exists(out_path) and os.path.getsize(out_path) > 100000
     except Exception:
         return False
 
-# ---------------- MULTI-LAYER ANTI-SABR DOWNLOADER ----------------
-def download_tv_aria2_turbo(vid_id):
+# ---------------- LIGHTNING FAST CLOUD PROXY DOWNLOADER ----------------
+def cloud_proxy_download(vid_id):
     out_raw = os.path.join(OUTPUT_DIR, f"{vid_id}_source.mp4")
     if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
-        return out_raw, get_duration(out_raw), "Cached Instant"
+        return out_raw, get_duration(out_raw), "Cached"
 
     clean_url = f"https://www.youtube.com/watch?v={vid_id}"
-    last_err = ""
 
-    # ENGINE 1: yt-dlp with `formats=missing_pot` (Specifically bypasses "PoToken UNKNOWN" & SABR!)
-    ytdlp_bypasses = [
-        "youtube:player_client=ios,mweb,tv_embedded;formats=missing_pot",
-        "youtube:player_client=android_vr,web_embedded;formats=missing_pot",
-        "youtube:player_client=web_creator,mediaconnect;formats=missing_pot"
+    # ENGINE 1: Cobalt API (Bypasses Cloud Server Blocks Instantly in 2 seconds!)
+    cobalt_apis = [
+        "https://api.cobalt.tools/api/json",
+        "https://cobalt-api.kwiatekmiki.com/api/json",
+        "https://co.eepy.today/api/json"
     ]
-    for ext_arg in ytdlp_bypasses:
-        if os.path.exists(out_raw): os.remove(out_raw)
-        cmd_ydl = [
-            "yt-dlp", "-4", "--geo-bypass", "--no-warnings", "--no-playlist",
-            "--extractor-args", ext_arg,
-            "-f", "18/22/best[ext=mp4]/best",
-            "--downloader", "aria2c",
-            "--downloader-args", "aria2c:-x 16 -s 16 -k 1M",
-            "-o", out_raw, clean_url
-        ]
+    for api in cobalt_apis:
         try:
-            r = subprocess.run(cmd_ydl, capture_output=True, text=True, timeout=35)
-            if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
-                return out_raw, get_duration(out_raw), "yt-dlp Anti-PoToken"
-            last_err = r.stderr[-150:] if r.stderr else "yt-dlp empty"
-        except Exception as e:
-            last_err = str(e)
-
-    # ENGINE 2: pytubefix with `use_po_token=True` (Generates real PoToken via nodejs-bin so PoToken is NEVER UNKNOWN!)
-    pot_clients = [
-        ("WEB", True, False),
-        ("MWEB", True, False),
-        ("TV", True, os.path.exists(TOKEN_FILE)),
-        ("TV", False, os.path.exists(TOKEN_FILE)),
-        ("WEB_EMBED", False, False),
-        ("IOS", False, False),
-        ("ANDROID_VR", False, False)
-    ]
-
-    for c_name, use_pot, use_auth in pot_clients:
-        try:
-            if use_auth:
-                yt = YouTube(clean_url, client=c_name, use_po_token=use_pot, use_oauth=True, allow_oauth_cache=True, token_file=TOKEN_FILE)
-            else:
-                yt = YouTube(clean_url, client=c_name, use_po_token=use_pot)
-
-            dur = int(yt.length) if yt.length else 300
-            ys = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-            if not ys:
-                ys = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
-
-            if ys and ys.url:
-                if download_direct_url(ys.url, out_raw):
-                    return out_raw, get_duration(out_raw, dur), f"{c_name} PoToken ({ys.resolution})"
-
-                if os.path.exists(out_raw): os.remove(out_raw)
-                with ThreadPoolExecutor(max_workers=1) as ex:
-                    ex.submit(ys.download, output_path=OUTPUT_DIR, filename=f"{vid_id}_source.mp4").result(timeout=25)
-
-                if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
-                    return out_raw, get_duration(out_raw, dur), f"{c_name} ({ys.resolution})"
-        except Exception as e:
-            last_err = str(e)
+            headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+            payload = {"url": clean_url, "vQuality": "720"}
+            resp = requests.post(api, json=payload, headers=headers, timeout=8)
+            if resp.status_code == 200:
+                d_url = resp.json().get("url")
+                if d_url and download_file(d_url, out_raw):
+                    return out_raw, get_duration(out_raw), "Cobalt Proxy"
+        except Exception:
             continue
 
-    # ENGINE 3: External Cloud Transcoder API (Works even if YouTube blocks all AWS IPs!)
+    # ENGINE 2: Piped Mirrors API
+    piped_mirrors = [
+        f"https://pipedapi.kavin.rocks/streams/{vid_id}",
+        f"https://api.piped.private.coffee/streams/{vid_id}",
+        f"https://pipedapi.moomoo.me/streams/{vid_id}"
+    ]
+    for p_api in piped_mirrors:
+        try:
+            resp = requests.get(p_api, timeout=6)
+            if resp.status_code == 200:
+                data = resp.json()
+                dur = int(data.get("duration", 300))
+                for s in data.get("videoStreams", []):
+                    if not s.get("videoOnly", True) and s.get("url"):
+                        if download_file(s["url"], out_raw):
+                            return out_raw, get_duration(out_raw, dur), "Piped Proxy"
+        except Exception:
+            continue
+
+    # ENGINE 3: yt-dlp Direct Fallback
     try:
-        init_url = f"https://ab.cococococ.com/ajax/download.php?copyright=0&format=720&url={clean_url}&api=dfcb6d76f2f6a9894gjkege8a4ab232222"
-        r_init = requests.get(init_url, timeout=10).json()
-        if r_init.get("success") and r_init.get("id"):
-            task_id = r_init["id"]
-            for _ in range(10):
-                time.sleep(2)
-                p_res = requests.get(f"https://p.oceansaver.in/ajax/progress.php?id={task_id}", timeout=8).json()
-                if p_res.get("success") == 1 and p_res.get("download_url"):
-                    if download_direct_url(p_res["download_url"], out_raw):
-                        return out_raw, get_duration(out_raw), "Cloud Proxy API"
-                    break
+        cmd = ["yt-dlp", "-4", "--no-warnings", "-f", "18/22/best[ext=mp4]", "-o", out_raw, clean_url]
+        subprocess.run(cmd, capture_output=True, timeout=20)
+        if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
+            return out_raw, get_duration(out_raw), "yt-dlp Direct"
     except Exception:
         pass
 
-    return None, 0, last_err
+    return None, 0, ""
 
-# ---------------- ULTRA-FAST 1080p FHD CUTTER (15-20 SEC PER SHORT) ----------------
+# ---------------- ULTRA-FAST 1080p FHD CUTTER ----------------
 def cut_fhd_fast(i, st_time, dur, local_media, vid_id, res_choice, frame_mode):
     is_fhd = "1080" in res_choice
     W, H = (1080, 1920) if is_fhd else (720, 1280)
@@ -253,11 +153,11 @@ if st.button("🚀 GENERATE FHD SHORTS NOW (TURBO SPEED)"):
         st.error("❌ Bhai sahi YouTube link daalo!")
     else:
         t0 = time.time()
-        with st.spinner("⚡ Step 1/2: Pulling Video via Anti-PoToken Turbo Engine (10-15 sec)..."):
-            local_media, total_dur, engine_used = download_tv_aria2_turbo(vid_id)
+        with st.spinner("⚡ Step 1/2: Cloud Proxy se Video turant pull ho rahi hai (3-5 sec)..."):
+            local_media, total_dur, engine_used = cloud_proxy_download(vid_id)
 
         if not local_media:
-            st.error(f"❌ Error ({engine_used}). Dobara try karein!")
+            st.error("❌ Link fetch nahi ho paya. Doosra YouTube link try karein!")
         else:
             clip_len = 35 if total_dur >= 120 else max(15, total_dur // max(2, clip_count))
             step = max(10, max(clip_len, total_dur - clip_len - 5) // max(1, clip_count))
@@ -267,7 +167,7 @@ if st.button("🚀 GENERATE FHD SHORTS NOW (TURBO SPEED)"):
 
             for i in range(clip_count):
                 st_time = min(5 + (i * step), max(0, total_dur - clip_len))
-                prog_bar.progress((i) / clip_count, text=f"⚡ Cutting FHD Short #{i+1} of {clip_count} (15-20 sec per Short)...")
+                prog_bar.progress((i) / clip_count, text=f"⚡ Cutting FHD Short #{i+1} of {clip_count}...")
                 out_f = cut_fhd_fast(i, st_time, clip_len, local_media, vid_id, res_choice, frame_mode)
                 if out_f:
                     ready_files.append(out_f)
@@ -304,4 +204,4 @@ if "shorts" in st.session_state and st.session_state["shorts"]:
                 st.download_button(f"📥 Save #{idx+1} ({fsize_mb}MB)", data=file_bytes, file_name=os.path.basename(fpath), mime="video/mp4", key=f"dl_{idx}")
         with st.expander(f"▶️ Preview Short #{idx+1} (Optional)"):
             st.video(fpath)
-                              
+          
