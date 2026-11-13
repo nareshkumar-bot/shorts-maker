@@ -1,6 +1,2 @@
 streamlit
 pytubefix
-nodejs-bin
-yt-dlp
-requests
-bgutil-ytdlp-pot-provider
