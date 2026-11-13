@@ -12,8 +12,8 @@ st.markdown("""
 .stButton>button {width: 100%; background: linear-gradient(90deg, #ef4444, #9333ea); color: white; font-weight: bold; border: none; border-radius: 10px; padding: 12px; font-size: 16px;}
 </style>
 <div class="title-box">
-  <h1>⚡ PRO SHORTS STUDIO (CLOUD PROXY TURBO)</h1>
-  <p style="color:#cbd5e1; margin:4px 0 0 0; font-size:14px;">Direct Cloud Proxy • Zero PoToken Hang • 1080p FHD</p>
+  <h1>⚡ PRO SHORTS STUDIO (COOKIES TURBO)</h1>
+  <p style="color:#cbd5e1; margin:4px 0 0 0; font-size:14px;">Cookies Bypass Engine • 16x Aria2c • 1080p FHD</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -34,70 +34,47 @@ def get_duration(file_path, default_dur=300):
     except Exception:
         return default_dur
 
-def download_file(url, out_path):
-    if os.path.exists(out_path): os.remove(out_path)
-    try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        with requests.get(url, headers=headers, stream=True, timeout=35) as r:
-            if r.status_code == 200:
-                with open(out_path, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=1024*512):
-                        if chunk: f.write(chunk)
-        return os.path.exists(out_path) and os.path.getsize(out_path) > 100000
-    except Exception:
-        return False
-
-# ---------------- LIGHTNING FAST CLOUD PROXY DOWNLOADER ----------------
-def cloud_proxy_download(vid_id):
+# ---------------- ROBUST COOKIES + YTDLP DOWNLOADER ----------------
+def robust_download(vid_id, cookie_file=None):
     out_raw = os.path.join(OUTPUT_DIR, f"{vid_id}_source.mp4")
     if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
         return out_raw, get_duration(out_raw), "Cached"
 
     clean_url = f"https://www.youtube.com/watch?v={vid_id}"
 
-    # ENGINE 1: Cobalt API (Bypasses Cloud Server Blocks Instantly in 2 seconds!)
-    cobalt_apis = [
-        "https://api.cobalt.tools/api/json",
-        "https://cobalt-api.kwiatekmiki.com/api/json",
-        "https://co.eepy.today/api/json"
-    ]
-    for api in cobalt_apis:
-        try:
-            headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
-            payload = {"url": clean_url, "vQuality": "720"}
-            resp = requests.post(api, json=payload, headers=headers, timeout=8)
-            if resp.status_code == 200:
-                d_url = resp.json().get("url")
-                if d_url and download_file(d_url, out_raw):
-                    return out_raw, get_duration(out_raw), "Cobalt Proxy"
-        except Exception:
-            continue
+    # 1. Try via yt-dlp with aria2c 16-connection turbo and optional cookies.txt
+    ytdlp_args = ["yt-dlp", "-4", "--no-warnings", "--no-playlist"]
+    if cookie_file and os.path.exists(cookie_file):
+        ytdlp_args.extend(["--cookies", cookie_file])
 
-    # ENGINE 2: Piped Mirrors API
-    piped_mirrors = [
-        f"https://pipedapi.kavin.rocks/streams/{vid_id}",
-        f"https://api.piped.private.coffee/streams/{vid_id}",
-        f"https://pipedapi.moomoo.me/streams/{vid_id}"
-    ]
-    for p_api in piped_mirrors:
-        try:
-            resp = requests.get(p_api, timeout=6)
-            if resp.status_code == 200:
-                data = resp.json()
-                dur = int(data.get("duration", 300))
-                for s in data.get("videoStreams", []):
-                    if not s.get("videoOnly", True) and s.get("url"):
-                        if download_file(s["url"], out_raw):
-                            return out_raw, get_duration(out_raw, dur), "Piped Proxy"
-        except Exception:
-            continue
+    ytdlp_args.extend([
+        "--extractor-args", "youtube:player_client=ios,tv_embedded;player_skip=webpage",
+        "-f", "18/22/best[ext=mp4]/best",
+        "--downloader", "aria2c",
+        "--downloader-args", "aria2c:-x 16 -s 16 -k 1M",
+        "-o", out_raw, clean_url
+    ])
 
-    # ENGINE 3: yt-dlp Direct Fallback
     try:
-        cmd = ["yt-dlp", "-4", "--no-warnings", "-f", "18/22/best[ext=mp4]", "-o", out_raw, clean_url]
-        subprocess.run(cmd, capture_output=True, timeout=20)
+        subprocess.run(ytdlp_args, capture_output=True, timeout=40)
         if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
-            return out_raw, get_duration(out_raw), "yt-dlp Direct"
+            return out_raw, get_duration(out_raw), "yt-dlp Turbo"
+    except Exception:
+        pass
+
+    # 2. Fallback to Cobalt API
+    try:
+        resp = requests.post("https://api.cobalt.tools/api/json", json={"url": clean_url, "vQuality": "720"}, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=8)
+        if resp.status_code == 200:
+            d_url = resp.json().get("url")
+            if d_url:
+                with requests.get(d_url, stream=True, timeout=30) as r:
+                    if r.status_code == 200:
+                        with open(out_raw, "wb") as f:
+                            for chunk in r.iter_content(chunk_size=1024*512):
+                                if chunk: f.write(chunk)
+                if os.path.exists(out_raw) and os.path.getsize(out_raw) > 100000:
+                    return out_raw, get_duration(out_raw), "Cobalt API"
     except Exception:
         pass
 
@@ -145,24 +122,34 @@ with col2:
 
 frame_mode = st.radio("📐 Crop & Frame Ratio:", ["Square (1:1) in 9:16 [Less Crop ⭐]", "Full Vertical (9:16 Zoom)", "Wide Fit (Zero Crop in 9:16)"])
 
-if st.button("🚀 GENERATE FHD SHORTS NOW (TURBO SPEED)"):
+with st.expander("🔑 Optional: cookies.txt Upload Karein (Agar IP Block ho toh)"):
+    up_cookie = st.file_uploader("Netscape cookies.txt file upload karein", type=["txt"])
+    st.markdown("*(Aap apne browser mein 'Get cookies.txt LOCALLY' extension se YouTube ki cookies export karke yahan upload kar sakte hain)*")
+
+if st.button("🚀 GENERATE FHD SHORTS NOW"):
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     vid_id = get_id(yt_url)
     if not vid_id:
         st.error("❌ Bhai sahi YouTube link daalo!")
     else:
+        cookie_path = None
+        if up_cookie:
+            cookie_path = os.path.join(OUTPUT_DIR, "cookies.txt")
+            with open(cookie_path, "wb") as f:
+                f.write(up_cookie.read())
+
         t0 = time.time()
-        with st.spinner("⚡ Step 1/2: Cloud Proxy se Video turant pull ho rahi hai (3-5 sec)..."):
-            local_media, total_dur, engine_used = cloud_proxy_download(vid_id)
+        with st.spinner("⚡ Step 1/2: Video download ho rahi hai..."):
+            local_media, total_dur, engine_used = robust_download(vid_id, cookie_path)
 
         if not local_media:
-            st.error("❌ Link fetch nahi ho paya. Doosra YouTube link try karein!")
+            st.error("❌ Streamlit Cloud IP YouTube se block hai. Upar expander khol kar apni 'cookies.txt' file upload karein, fir 100% chalega!")
         else:
             clip_len = 35 if total_dur >= 120 else max(15, total_dur // max(2, clip_count))
             step = max(10, max(clip_len, total_dur - clip_len - 5) // max(1, clip_count))
 
-            prog_bar = st.progress(0, text=f"✂️ Step 2/2: Fast FHD Cutting Shuru ({engine_used})...")
+            prog_bar = st.progress(0, text=f"✂️ Step 2/2: Fast FHD Cutting Shuru...")
             ready_files = []
 
             for i in range(clip_count):
