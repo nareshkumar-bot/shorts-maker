@@ -1,4 +1,7 @@
 streamlit
-requests
 yt-dlp
-aria2
+numpy
+soundfile
+httpx
+requests
+pillow
