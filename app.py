@@ -5,7 +5,6 @@ import yt_dlp
 
 st.set_page_config(page_title="PeakCut Studio", page_icon="✂️", layout="centered")
 
-# PeakCut Authentic Dark UI[span_0](start_span)[span_0](end_span)
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;700;800&display=swap');
@@ -44,18 +43,22 @@ COOKIE_SAVED_PATH = Path("/tmp/saved_youtube_cookies.txt")
 TV_TOKEN_PATH = Path("/tmp/saved_tv_oauth.json")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Official YouTube TV Client Credentials
 TV_CLIENT_ID = "861556708454-d6dlm3lh05idd8npek18k6be8ba3oc68.apps.googleusercontent.com"
 TV_CLIENT_SECRET = "SboVhoG9s0rNafixCSGGKXAT"
 
 def get_id(url: str):
-    p_list = [r"(?:v=|/)([0-9A-Za-z_-]{11}).*", r"youtu[.]be/([0-9A-Za-z_-]{11})", r"shorts/([0-9A-Za-z_-]{11})", r"live/([0-9A-Za-z_-]{11})"]
+    p_list = [
+        r"(?:v=|/)([0-9A-Za-z_-]{11}).*",
+        r"youtu[.]be/([0-9A-Za-z_-]{11})",
+        r"shorts/([0-9A-Za-z_-]{11})",
+        r"live/([0-9A-Za-z_-]{11})"
+    ]
     for p in p_list:
         m = re.search(p, url.strip())
-        if m: return m.group(1)
+        if m:
+            return m.group(1)
     return None
 
-# Auto-fixes mobile copy-paste spaces back into strict Netscape TAB format!
 def sanitize_and_save_cookies(raw_text: str, out_path: Path) -> int:
     fixed_lines = ["# Netscape HTTP Cookie File"]
     valid_count = 0
@@ -148,7 +151,8 @@ def fast_stream_save(stream_url: str, out_file: Path, extra_headers: dict = None
             if r.status_code == 200:
                 with open(out_file, "wb") as f:
                     for chunk in r.iter_content(chunk_size=1024 * 512):
-                        if chunk: f.write(chunk)
+                        if chunk:
+                            f.write(chunk)
         return out_file.is_file() and out_file.stat().st_size > 100_000
     except Exception:
         return False
@@ -159,11 +163,9 @@ class _Quiet:
     def warning(self, m): pass
     def error(self, m): pass
 
-# Exact PeakCut studio/media.py _video_format[span_1](start_span)[span_1](end_span)
 def _video_format(height: int = 1080) -> str:
     return f"bv*[height<={height}][vcodec^=avc1]+ba[ext=m4a]/bv*[height<={height}]+ba/b[height<={height}]/b"
 
-# ---------------- MASTER 4-ENGINE DOWNLOADER (TV OAUTH + COOKIES + YTDLP + PROXIES) ----------------
 def master_video_downloader(url: str, height: int = 1080) -> tuple:
     vid_id = get_id(url)
     stem = vid_id or "video_src"
@@ -176,7 +178,6 @@ def master_video_downloader(url: str, height: int = 1080) -> tuple:
     tv_token = get_valid_tv_token()
     error_log = []
 
-    # ENGINE 1: Direct TV OAuth Bearer Token (If user connected TV Code!)
     if tv_token and vid_id:
         for p in OUTPUT_DIR.glob(f"{stem}.*"):
             p.unlink(missing_ok=True)
@@ -202,7 +203,6 @@ def master_video_downloader(url: str, height: int = 1080) -> tuple:
         except Exception as e:
             error_log.append(f"TV-ytdlp: {str(e)[:120]}")
 
-        # Direct InnerTube TV Player API Call with OAuth Bearer Token (No PoToken needed!)
         try:
             innertube_r = requests.post(
                 "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
@@ -232,11 +232,10 @@ def master_video_downloader(url: str, height: int = 1080) -> tuple:
                     s_url = f_item.get("url")
                     if s_url and fast_stream_save(s_url, out_raw, {"Authorization": f"Bearer {tv_token}"}):
                         return out_raw, "TV InnerTube Direct API", error_log
-                error_log.append(f"TV-API status: {(p_data.get('playabilityStatus') or {}).get('reason', 'No direct url')}")
+                error_log.append(f"TV-API: {(p_data.get('playabilityStatus') or {}).get('reason', 'No stream')}")
         except Exception as e:
             error_log.append(f"TV-InnerTube: {str(e)[:100]}")
 
-    # ENGINE 2: Pure PeakCut yt-dlp + Auto-Repaired Browser Cookies[span_2](start_span)[span_2](end_span)
     profiles = [
         ("PeakCut Web+Cookies", {}),
         ("PeakCut TV-Embed+Cookies", {"extractor_args": {"youtube": {"player_client": ["tv_embedded", "mweb"]}}}),
@@ -269,7 +268,6 @@ def master_video_downloader(url: str, height: int = 1080) -> tuple:
         except Exception as e:
             error_log.append(f"{label}: {str(e)[:140]}")
 
-    # ENGINE 3: Public Invidious / Piped Proxy Nodes (Safe JSON Parsing)
     if vid_id:
         proxy_nodes = [
             f"https://inv.nadeko.net/api/v1/videos/{vid_id}",
@@ -292,14 +290,12 @@ def master_video_downloader(url: str, height: int = 1080) -> tuple:
 
     return None, "All Engines Refused", error_log
 
-# ---------------- EXACT PEAKCUT RENDER.PY FILTER & ENCODER[span_3](start_span)[span_3](end_span) ----------------
 def render_peakcut_short(i: int, src_path: Path, st_time: float, dur: float, src_w: int, src_h: int, layout_choice: str, style_choice: str, res_choice: str) -> Path:
     is_fhd = "1080" in res_choice
     W, H = (1080, 1920) if is_fhd else (720, 1280)
     out_mp4 = OUTPUT_DIR / f"PeakCut_Short_{i+1}_{W}x{H}.mp4"
     out_mp4.unlink(missing_ok=True)
 
-    # Exact PeakCut studio/render.py _filter[span_4](start_span)[span_4](end_span)
     if "Full frame + blurred fill" in layout_choice:
         fg_h = min(H, int(round(W * src_h / max(1, src_w) / 2)) * 2)
         vf = (
@@ -321,7 +317,6 @@ def render_peakcut_short(i: int, src_path: Path, st_time: float, dur: float, src
     else:
         vf = f"[0:v]fps=30,scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},unsharp=3:3:0.6:3:3:0.0,setsar=1[v]"
 
-    # Exact PeakCut studio/render.py _render_in[span_5](start_span)[span_5](end_span)
     cmd = [
         "ffmpeg", "-y", "-v", "error",
         "-ss", f"{st_time:.2f}",
@@ -339,84 +334,83 @@ def render_peakcut_short(i: int, src_path: Path, st_time: float, dur: float, src
     subprocess.run(cmd, capture_output=True)
     return out_mp4 if out_mp4.is_file() and out_mp4.stat().st_size > 10_000 else None
 
-# ---------------- UI: DUAL UNLOCK (TV CODE + COOKIES WITH OK BUTTONS) ----------------
 col_u1, col_u2 = st.columns(2)
 
 with col_u1:
-    with st.expander("📺 Option A: TV Code Unlock", expanded=not TV_TOKEN_PATH.is_file()):
-        if TV_TOKEN_PATH.is_file():
-            st.success("✅ **TV Code Connected!**")
-            if st.button("🔄 Reset TV Code"):
-                TV_TOKEN_PATH.unlink(missing_ok=True)
-                st.rerun()
-        else:
-            if st.button("1️⃣ Get TV Code"):
-                try:
-                    r = requests.post(
-                        "https://www.youtube.com/o/oauth2/device/code",
-                        json={"client_id": TV_CLIENT_ID, "scope": "http://gdata.youtube.com https://www.googleapis.com/auth/youtube-paid-content"},
-                        timeout=10
-                    )
-                    if r.status_code == 200:
-                        st.session_state["tv_dev"] = r.json()
-                    else:
-                        st.error("❌ Try again!")
-                except Exception as e:
-                    st.error(f"Error: {e}")
+    st.markdown("##### 📺 Option A: TV Code")
+    if TV_TOKEN_PATH.is_file():
+        st.success("✅ TV Code Connected!")
+        if st.button("🔄 Reset TV Code"):
+            TV_TOKEN_PATH.unlink(missing_ok=True)
+            st.rerun()
+    else:
+        if st.button("1️⃣ Get TV Code"):
+            try:
+                r = requests.post(
+                    "https://www.youtube.com/o/oauth2/device/code",
+                    json={"client_id": TV_CLIENT_ID, "scope": "http://gdata.youtube.com https://www.googleapis.com/auth/youtube-paid-content"},
+                    timeout=10
+                )
+                if r.status_code == 200:
+                    st.session_state["tv_dev"] = r.json()
+                else:
+                    st.error("❌ Try again!")
+            except Exception as e:
+                st.error(f"Error: {e}")
 
-            if "tv_dev" in st.session_state:
-                d = st.session_state["tv_dev"]
-                v_url = d.get("verification_url", "https://www.google.com/device")
-                u_code = d.get("user_code", "")
-                st.warning(f"1. Tap: [{v_url}]({v_url})\n2. Enter Code: **`{u_code}`**")
-                if st.button("2️⃣ ✅ Confirm TV Code"):
-                    pr = requests.post(
-                        "https://www.youtube.com/o/oauth2/token",
-                        data={
-                            "client_id": TV_CLIENT_ID,
-                            "client_secret": TV_CLIENT_SECRET,
-                            "code": d["device_code"],
-                            "grant_type": "http://oauth.net/grant_type/device/1.0"
-                        },
-                        timeout=10
-                    ).json()
-                    if "access_token" in pr:
-                        pr["expires_at"] = int(time.time()) + int(pr.get("expires_in", 3600))
-                        TV_TOKEN_PATH.write_text(json.dumps(pr), encoding="utf-8")
-                        del st.session_state["tv_dev"]
-                        st.success("🎉 TV Connected!")
-                        time.sleep(0.6)
-                        st.rerun()
-                    else:
-                        st.error("❌ Pehle Google link par code daal kar Allow karein!")
+        if "tv_dev" in st.session_state:
+            d = st.session_state["tv_dev"]
+            v_url = d.get("verification_url", "https://www.google.com/device")
+            u_code = d.get("user_code", "")
+            st.warning(f"1. Open: [{v_url}]({v_url})\n2. Code: **`{u_code}`**")
+            if st.button("2️⃣ ✅ Confirm TV Code"):
+                pr = requests.post(
+                    "https://www.youtube.com/o/oauth2/token",
+                    data={
+                        "client_id": TV_CLIENT_ID,
+                        "client_secret": TV_CLIENT_SECRET,
+                        "code": d["device_code"],
+                        "grant_type": "http://oauth.net/grant_type/device/1.0"
+                    },
+                    timeout=10
+                ).json()
+                if "access_token" in pr:
+                    pr["expires_at"] = int(time.time()) + int(pr.get("expires_in", 3600))
+                    TV_TOKEN_PATH.write_text(json.dumps(pr), encoding="utf-8")
+                    del st.session_state["tv_dev"]
+                    st.success("🎉 TV Connected!")
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error("❌ Pehle Google link par code daal kar Allow karein!")
 
 with col_u2:
-    with st.expander("🔑 Option B: Cookies Setup", expanded=not COOKIE_SAVED_PATH.is_file()):
-        if COOKIE_SAVED_PATH.is_file() and COOKIE_SAVED_PATH.stat().st_size > 30:
-            st.success(f"✅ **Cookies Active!** ({COOKIE_SAVED_PATH.stat().st_size} B)")
-            if st.button("🗑️ Delete Cookies"):
-                COOKIE_SAVED_PATH.unlink(missing_ok=True)
-                st.rerun()
+    st.markdown("##### 🔑 Option B: Cookies")
+    if COOKIE_SAVED_PATH.is_file() and COOKIE_SAVED_PATH.stat().st_size > 30:
+        st.success(f"✅ Cookies Saved ({COOKIE_SAVED_PATH.stat().st_size} B)")
+        if st.button("🗑️ Delete Cookies"):
+            COOKIE_SAVED_PATH.unlink(missing_ok=True)
+            st.rerun()
 
-        up_ck_file = st.file_uploader("📂 Select cookies.txt", type=["txt"])
-        ck_text_box = st.text_area("📋 Or Paste cookies.txt text", height=68, placeholder="# Netscape HTTP Cookie File...")
+    up_ck_file = st.file_uploader("📂 Select cookies.txt", type=["txt"])
+    ck_text_box = st.text_area("📋 Or Paste cookies.txt", height=68, placeholder="# Netscape HTTP Cookie File...")
 
-        if st.button("✅ OK / SAVE COOKIES"):
-            raw_ck = ""
-            if up_ck_file is not None:
-                raw_ck = up_ck_file.getvalue().decode("utf-8", errors="ignore")
-            elif ck_text_box.strip():
-                raw_ck = ck_text_box.strip()
+    if st.button("✅ OK / SAVE COOKIES"):
+        raw_ck = ""
+        if up_ck_file is not None:
+            raw_ck = up_ck_file.getvalue().decode("utf-8", errors="ignore")
+        elif ck_text_box.strip():
+            raw_ck = ck_text_box.strip()
 
-            if raw_ck:
-                cnt = sanitize_and_save_cookies(raw_ck, COOKIE_SAVED_PATH)
-                st.success(f"🎉 {cnt} Cookie lines repaired & saved!")
-                time.sleep(0.7)
-                st.rerun()
-            else:
-                st.error("❌ Pehle file select karein ya text paste karein!")
+        if raw_ck:
+            cnt = sanitize_and_save_cookies(raw_ck, COOKIE_SAVED_PATH)
+            st.success(f"🎉 {cnt} Cookies Saved!")
+            time.sleep(0.5)
+            st.rerun()
+        else:
+            st.error("❌ Pehle file chunein ya text paste karein!")
 
-# ---------------- MAIN INPUT UI ----------------
+st.markdown("---")
 source_mode = st.radio("📥 Select Video Input:", ["🔗 Video Link (YouTube / Twitch / Kick)", "📱 Upload Video From Phone (100% Instant)"], horizontal=True)
 
 url_input = ""
@@ -436,7 +430,7 @@ with c3:
     style_choice = st.selectbox("🎨 PeakCut Style:", ["Bounce", "Hype", "Clean"], index=0)
 
 layout_choice = st.radio(
-    "📐 PeakCut Layout (studio/render.py):",
+    "📐 PeakCut Layout:",
     ["Full frame + blurred fill ⭐", "Zoomed in + blurred fill", "Fill the screen (centre crop)"],
     horizontal=True
 )
@@ -451,4 +445,31 @@ if st.button("🚀 MAKE PEAKCUT FHD SHORTS NOW"):
     if up_video is not None:
         src_file = OUTPUT_DIR / "uploaded_source.mp4"
         with st.spinner("📥 Loading video from phone..."):
-            
+            src_file.write_bytes(up_video.getbuffer())
+    elif url_input.strip():
+        with st.spinner("⚡ Pulling Video via TV OAuth / Repaired Cookies / PeakCut Engine..."):
+            target_h = 1080 if "1080" in res_choice else 720
+            src_file, engine_name, err_details = master_video_downloader(url_input.strip(), height=target_h)
+        if not src_file:
+            st.error("❌ YouTube Blocked Cloud IP! Niche reason dekhein:")
+            for line in err_details:
+                st.caption(f"• {line}")
+    else:
+        st.error("❌ Bhai pehle Video Link daalo ya Phone se Video select karo!")
+
+    if src_file and src_file.is_file():
+        meta = probe_video(src_file)
+        dur, src_w, src_h = meta["duration"], meta["width"], meta["height"]
+        clip_len = 35.0 if dur >= 120 else max(12.0, dur / max(2, clip_count))
+        step = max(8.0, max(clip_len, dur - clip_len - 4) / max(1, clip_count))
+
+        prog = st.progress(0, text=f"✂️ Rendering {clip_count} PeakCut Shorts via {engine_name}...")
+        ready_files = []
+
+        for i in range(clip_count):
+            st_t = min(3.0 + i * step, max(0.0, dur - clip_len))
+            prog.progress(i / clip_count, text=f"🎬 Rendering Short #{i+1}/{clip_count}...")
+            out_p = render_peakcut_short(i, src_file, st_t, clip_len, src_w, src_h, layout_choice, style_choice, res_choice)
+            if out_p:
+                ready_files.append(out_p)
+            prog.progress((i + 
