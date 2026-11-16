@@ -1,9 +1,7 @@
 import os, re, time, shutil, zipfile, subprocess, requests
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 import yt_dlp
-from pytubefix import YouTube
 
 st.set_page_config(page_title="PeakCut Studio", page_icon="✂️", layout="centered")
 
@@ -37,7 +35,7 @@ html, body, [class*="css"] {font-family: 'Poppins', sans-serif;}
 </style>
 <div class="peak-box">
   <div class="peak-title">✂️ PEAKCUT STUDIO (1080p FHD)</div>
-  <div class="peak-sub">Web-Downloader API System • Cookie OK Button • Zero FFmpeg Code 8</div>
+  <div class="peak-sub">Pure Web Cookie Engine • Zero Device Error • Exact PeakCut Render</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -70,7 +68,7 @@ def fast_stream_save(stream_url: str, out_file: Path) -> bool:
     out_file.unlink(missing_ok=True)
     aria_cmd = [
         "aria2c", "-x", "16", "-s", "16", "-k", "1M",
-        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "--check-certificate=false",
         "-d", str(out_file.parent), "-o", out_file.name, stream_url
     ]
@@ -78,7 +76,7 @@ def fast_stream_save(stream_url: str, out_file: Path) -> bool:
     if out_file.is_file() and out_file.stat().st_size > 100_000:
         return True
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         with requests.get(stream_url, headers=headers, stream=True, timeout=40) as r:
             if r.status_code == 200:
                 with open(out_file, "wb") as f:
@@ -88,7 +86,17 @@ def fast_stream_save(stream_url: str, out_file: Path) -> bool:
     except Exception:
         return False
 
-# ---------------- HOW DOWNLOAD WEBSITES WORK: MULTI-API + COOKIE ENGINE ----------------
+class _Quiet:
+    def debug(self, m): pass
+    def info(self, m): pass
+    def warning(self, m): pass
+    def error(self, m): pass
+
+# Exact PeakCut studio/media.py _video_format
+def _video_format(height: int = 1080) -> str:
+    return f"bv*[height<={height}][vcodec^=avc1]+ba[ext=m4a]/bv*[height<={height}]+ba/b[height<={height}]/b"
+
+# ---------------- PURE PEAKCUT DOWNLOADER (NO FAKE DEVICE CLIENTS!) ----------------
 def master_video_downloader(url: str, height: int = 1080) -> tuple:
     vid_id = get_id(url)
     stem = vid_id or "video_src"
@@ -100,37 +108,45 @@ def master_video_downloader(url: str, height: int = 1080) -> tuple:
     has_cookie = COOKIE_SAVED_PATH.is_file() and COOKIE_SAVED_PATH.stat().st_size > 20
     last_err = ""
 
-    # ENGINE 1: yt-dlp Whole-File Download (NO download_ranges so FFmpeg NEVER exits with Code 8!)
-    client_Strategies = [
-        ["ios", "android_vr"],
-        ["tv_embedded", "mweb"],
-        ["web_embedded", "android_testsuite"]
+    # ENGINE 1: Exact PeakCut studio/media.py _ydl (Pure Default Web Client + Your Browser Cookies!)
+    # NO ios/android_vr/tv_embedded override when cookies are used, preventing "no longer supported in this application"!
+    profiles = [
+        ("PeakCut Web+Cookies", {}),
+        ("PeakCut MWeb+TV", {"extractor_args": {"youtube": {"player_client": ["mweb", "web"]}}}),
     ]
-    for clients in client_Strategies:
-        out_raw.unlink(missing_ok=True)
+
+    for label, extra_opts in profiles:
+        for p in OUTPUT_DIR.glob(f"{stem}.*"):
+            p.unlink(missing_ok=True)
+
         ydl_opts = {
-            "format": f"bv*[height<={height}][vcodec^=avc1]+ba[ext=m4a]/b[height<={height}][ext=mp4]/18/22/b",
+            "format": _video_format(height),
             "merge_output_format": "mp4",
             "outtmpl": str(OUTPUT_DIR / f"{stem}.%(ext)s"),
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
-            "nocheckcertificate": True,
+            "logger": _Quiet(),
+            "extract_flat": "in_playlist",
+            "playlistend": 1,
+            "socket_timeout": 20,
             "concurrent_fragment_downloads": 4,
-            "extractor_args": {"youtube": {"player_client": clients}},
+            "nocheckcertificate": True,
+            **extra_opts
         }
         if has_cookie:
             ydl_opts["cookiefile"] = str(COOKIE_SAVED_PATH)
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([clean_url])
             files = sorted((p for p in OUTPUT_DIR.glob(f"{stem}.*") if p.suffix not in (".part", ".ytdl")), key=lambda p: p.stat().st_size, reverse=True)
             if files and files[0].stat().st_size > 100_000:
-                return files[0], f"PeakCut yt-dlp ({clients[0]})"
+                return files[0], label
         except Exception as e:
             last_err = str(e)
 
-    # ENGINE 2: External Downloader Website API (Loader.to / Oceansaver Engine - Works like Y2Mate/SaveFrom!)
+    # ENGINE 2: External Web-Downloader API (Loader.to / Oceansaver Engine)
     if vid_id:
         for q_fmt in ["720", "1080", "480", "360"]:
             try:
@@ -138,7 +154,7 @@ def master_video_downloader(url: str, height: int = 1080) -> tuple:
                 r_init = requests.get(api_init, headers={"User-Agent": "Mozilla/5.0"}, timeout=10).json()
                 if r_init.get("success") and r_init.get("id"):
                     task_id = r_init["id"]
-                    for _ in range(14):
+                    for _ in range(15):
                         time.sleep(1.5)
                         p_res = requests.get(f"https://p.oceansaver.in/ajax/progress.php?id={task_id}", timeout=8).json()
                         if p_res.get("success") == 1 and p_res.get("download_url"):
@@ -149,13 +165,13 @@ def master_video_downloader(url: str, height: int = 1080) -> tuple:
             except Exception as e:
                 last_err = str(e)
 
-    # ENGINE 3: Piped & Invidious Public Proxy Nodes
+    # ENGINE 3: Public Invidious / Piped Proxy Nodes
     if vid_id:
         proxy_nodes = [
-            f"https://pipedapi.kavin.rocks/streams/{vid_id}",
-            f"https://api.piped.private.coffee/streams/{vid_id}",
             f"https://inv.nadeko.net/api/v1/videos/{vid_id}",
-            f"https://invidious.nerdvpn.de/api/v1/videos/{vid_id}"
+            f"https://invidious.nerdvpn.de/api/v1/videos/{vid_id}",
+            f"https://pipedapi.kavin.rocks/streams/{vid_id}",
+            f"https://api.piped.private.coffee/streams/{vid_id}"
         ]
         for node in proxy_nodes:
             try:
@@ -170,20 +186,6 @@ def master_video_downloader(url: str, height: int = 1080) -> tuple:
             except Exception:
                 continue
 
-    # ENGINE 4: pytubefix Embedded Fallback
-    if vid_id:
-        for c_name in ["WEB_EMBED", "ANDROID_VR", "IOS", "TV_EMBED"]:
-            try:
-                yt = YouTube(clean_url, client=c_name)
-                ys = yt.streams.filter(progressive=True, file_extension="mp4").order_by("resolution").desc().first()
-                if ys:
-                    out_raw.unlink(missing_ok=True)
-                    ys.download(output_path=str(OUTPUT_DIR), filename=f"{stem}.mp4")
-                    if out_raw.is_file() and out_raw.stat().st_size > 100_000:
-                        return out_raw, f"pytubefix ({c_name})"
-            except Exception as e:
-                last_err = str(e)
-
     return None, last_err
 
 # ---------------- EXACT PEAKCUT RENDER.PY FILTER & ENCODER ----------------
@@ -193,7 +195,6 @@ def render_peakcut_short(i: int, src_path: Path, st_time: float, dur: float, src
     out_mp4 = OUTPUT_DIR / f"PeakCut_Short_{i+1}_{W}x{H}.mp4"
     out_mp4.unlink(missing_ok=True)
 
-    # Exact PeakCut studio/render.py geometry & _filter logic
     if "Full frame + blurred fill" in layout_choice:
         fg_h = min(H, int(round(W * src_h / max(1, src_w) / 2)) * 2)
         vf = (
@@ -215,7 +216,6 @@ def render_peakcut_short(i: int, src_path: Path, st_time: float, dur: float, src
     else:
         vf = f"[0:v]fps=30,scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},unsharp=3:3:0.6:3:3:0.0,setsar=1[v]"
 
-    # Exact PeakCut studio/render.py _render_in FFmpeg command (loudnorm + veryfast + crf 21)
     cmd = [
         "ffmpeg", "-y", "-v", "error",
         "-ss", f"{st_time:.2f}",
@@ -234,7 +234,7 @@ def render_peakcut_short(i: int, src_path: Path, st_time: float, dur: float, src
     return out_mp4 if out_mp4.is_file() and out_mp4.stat().st_size > 10_000 else None
 
 # ---------------- UI: COOKIE SETUP WITH PHONE "OK" BUTTON ----------------
-with st.expander("🔑 Cookies Setup (Phone Users Ke Liye 'OK' Button Ke Saath)", expanded=False):
+with st.expander("🔑 Cookies Setup (Phone Users Ke Liye 'OK' Button Ke Saath)", expanded=not COOKIE_SAVED_PATH.is_file()):
     if COOKIE_SAVED_PATH.is_file() and COOKIE_SAVED_PATH.stat().st_size > 20:
         st.success(f"✅ **Cookies Active Hain!** ({COOKIE_SAVED_PATH.stat().st_size} bytes saved)")
         if st.button("🗑️ Delete Saved Cookies"):
@@ -278,7 +278,6 @@ with c2:
 with c3:
     style_choice = st.selectbox("🎨 PeakCut Style:", ["Bounce", "Hype", "Clean"], index=0)
 
-# Exact PeakCut LAYOUTS from studio/render.py
 layout_choice = st.radio(
     "📐 PeakCut Layout (studio/render.py):",
     ["Full frame + blurred fill ⭐", "Zoomed in + blurred fill", "Fill the screen (centre crop)"],
@@ -297,11 +296,11 @@ if st.button("🚀 MAKE PEAKCUT FHD SHORTS NOW"):
         with st.spinner("📥 Loading video from phone..."):
             src_file.write_bytes(up_video.getbuffer())
     elif url_input.strip():
-        with st.spinner("⚡ Downloading video via Multi-Engine Web Downloader (10-20 sec)..."):
+        with st.spinner("⚡ Downloading 1080p Video via Pure PeakCut Web Engine (10-20 sec)..."):
             target_h = 1080 if "1080" in res_choice else 720
             src_file, engine_name = master_video_downloader(url_input.strip(), height=target_h)
         if not src_file:
-            st.error(f"❌ Server Blocked ({engine_name[-120:]}). Upar '🔑 Cookies Setup' khol kar cookies save karein YA '📱 Upload Video From Phone' use karein!")
+            st.error(f"❌ Error ({engine_name[-140:]}). Check cookies or use '📱 Upload Video From Phone'!")
     else:
         st.error("❌ Bhai pehle Video Link daalo ya Phone se Video select karo!")
 
@@ -323,7 +322,6 @@ if st.button("🚀 MAKE PEAKCUT FHD SHORTS NOW"):
             prog.progress((i + 1) / clip_count, text=f"✅ Short #{i+1}/{clip_count} Ready!")
 
         if ready_files:
-            # Exact PeakCut studio/account.py zip_clips logic (ZIP_STORED for instant speed)
             zip_path = OUTPUT_DIR / "PeakCut_All_Shorts.zip"
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED, allowZip64=True) as z:
                 for f in ready_files:
@@ -350,4 +348,4 @@ if "shorts" in st.session_state and st.session_state["shorts"]:
                 st.download_button(f"📥 Save #{idx+1}", data=file_bytes, file_name=os.path.basename(fpath), mime="video/mp4", key=f"dl_{idx}")
         with st.expander(f"▶️ Preview Short #{idx+1}"):
             st.video(fpath)
-    
+        
