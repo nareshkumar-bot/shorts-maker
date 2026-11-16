@@ -1,6 +1,6 @@
 streamlit
 yt-dlp
+nodejs-bin
 requests
 httpx
 pillow
-pytubefix
