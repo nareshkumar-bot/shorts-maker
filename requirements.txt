@@ -1,6 +1,6 @@
 streamlit
-yt-dlp
-nodejs-bin
+yt-dlp>=2025.1.1
+pytubefix
 requests
 httpx
 pillow
