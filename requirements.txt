@@ -1,7 +1,6 @@
 streamlit
 yt-dlp
-numpy
-soundfile
-httpx
 requests
+httpx
 pillow
+pytubefix
