@@ -1,4 +1,4 @@
-import os, re, time, json, shutil, zipfile, subprocess, requests
+import os, re, time, json, shutil, zipfile, subprocess
 from pathlib import Path
 import streamlit as st
 import yt_dlp
@@ -8,12 +8,12 @@ st.set_page_config(page_title="PeakCut Studio", page_icon="⚡", layout="centere
 st.markdown("""
 <style>
 .stApp {background-color: #09090b; color: #f4f4f5;}
-.pbox {background: #121215; border: 1px solid #ef4444; border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 14px;}
+.pbox {background: #121215; border: 1px solid #22c55e; border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 14px;}
 .stButton>button {width: 100%; background: #ef4444; color: #fff; font-weight: 700; border: none; border-radius: 8px; padding: 12px;}
 </style>
 <div class="pbox">
   <h2 style="margin:0;color:#fff;">⚡ PEAKCUT STUDIO (1080p FHD)</h2>
-  <p style="margin:4px 0 0 0;color:#a1a1aa;font-size:13px;">Anti-403 VR Engine • Clean Cookie Bypass • Residential Proxy</p>
+  <p style="margin:4px 0 0 0;color:#86efac;font-size:13px;">MWeb/TV Cookie Format Fixed • Universal Streamer • True 1080p Render</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -62,74 +62,29 @@ def probe_vid(p: Path):
     except Exception:
         return 1280, 720, 300.0
 
-def get_working_proxies() -> list:
-    proxies = []
-    try:
-        u = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=3000&country=all&ssl=yes&anonymity=elite"
-        r = requests.get(u, timeout=5)
-        if r.status_code == 200:
-            for ln in r.text.splitlines()[:8]:
-                if ":" in ln:
-                    proxies.append(f"http://{ln.strip()}")
-    except Exception:
-        pass
-    return proxies
-
-def smart_download(url: str, h: int, user_proxy: str, status_box) -> tuple:
+def smart_download(url: str, h: int, status_box) -> tuple:
     vid = get_id(url)
     stem = vid or "video"
-    out_raw = OUT_DIR / f"{stem}.mp4"
-    if out_raw.is_file() and out_raw.stat().st_size > 100_000:
-        return out_raw, "Cached", []
-
     c_url = f"https://www.youtube.com/watch?v={vid}" if vid else url.strip()
     has_ck = CK_PATH.is_file() and CK_PATH.stat().st_size > 30
     errs = []
 
-    # STRATEGY 1: If Cookies are present -> Pure Web/MWeb Client (NO Authorization header -> Zero HTTP 400!)
-    if has_ck:
-        status_box.info("🔄 Step 1: Downloading with your Saved Cookies (Pure Browser Mode)...")
-        ck_clients = [
-            ("Cookies + Default Web", {}),
-            ("Cookies + MWeb/TV", {"extractor_args": {"youtube": {"player_client": ["mweb", "tv_embedded"]}}}),
-            ("Cookies + Creator", {"extractor_args": {"youtube": {"player_client": ["web_creator"]}}})
-        ]
-        for lbl, ex in ck_clients:
-            for p in OUT_DIR.glob(f"{stem}.*"):
-                p.unlink(missing_ok=True)
-            opts = {
-                "format": f"bv*[height<={h}][vcodec^=avc1]+ba[ext=m4a]/b[ext=mp4]/18/22/b",
-                "merge_output_format": "mp4",
-                "outtmpl": str(OUT_DIR / f"{stem}.%(ext)s"),
-                "cookiefile": str(CK_PATH),
-                "noplaylist": True,
-                "quiet": True,
-                "no_warnings": True,
-                "nocheckcertificate": True,
-                "concurrent_fragment_downloads": 4,
-                **ex
-            }
-            if user_proxy:
-                opts["proxy"] = user_proxy
-            try:
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    ydl.download([c_url])
-                fls = sorted((p for p in OUT_DIR.glob(f"{stem}.*") if p.suffix not in (".part", ".ytdl")), key=lambda p: p.stat().st_size, reverse=True)
-                if fls and fls[0].stat().st_size > 100_000:
-                    return fls[0], lbl, errs
-            except Exception as e:
-                errs.append(f"{lbl}: {str(e)[:110]}")
+    # Universal format selector that NEVER fails with "Requested format is not available"!
+    universal_fmt = f"bv*[height<={h}]+ba/b[height<={h}]/bv*+ba/b"
 
-    # STRATEGY 2: Anti-403 Android VR & TV Embedded (Passed Bot Check in your logs! Tuned to avoid 403)
-    status_box.info("🔄 Step 2: Trying Anti-403 Tuned Android_VR & TV_Embedded...")
-    vr_profiles = [
-        ("Android_VR (HLS/ Dash Tuned)", ["android_vr"], "18/b[ext=mp4]/bv*[height<=720]+ba/b"),
-        ("TV_Embedded (HLS Tuned)", ["tv_embedded"], "18/b[ext=mp4]/bv*[height<=720]+ba/b"),
-        ("Android_Testsuite", ["android_testsuite"], "18/b[ext=mp4]/b")
+    strategies = [
+        ("Cookies + TV_Embedded (Universal)", ["tv_embedded"], universal_fmt),
+        ("Cookies + MWeb (Universal)", ["mweb"], universal_fmt),
+        ("Cookies + IOS (Universal)", ["ios"], universal_fmt),
+        ("Cookies + Default Web (Any Format)", ["web"], "b/bv*+ba"),
+        ("Cookies + Android_VR (Any Format)", ["android_vr"], "b/bv*+ba")
     ]
-    for lbl, cl_list, fmt_str in vr_profiles:
+
+    for lbl, cl_list, fmt_str in strategies:
+        status_box.info(f"⚡ Downloading via {lbl}...")
         for p in OUT_DIR.glob(f"{stem}.*"):
             p.unlink(missing_ok=True)
+
         opts = {
             "format": fmt_str,
             "merge_output_format": "mp4",
@@ -139,55 +94,27 @@ def smart_download(url: str, h: int, user_proxy: str, status_box) -> tuple:
             "no_warnings": True,
             "nocheckcertificate": True,
             "geo_bypass": True,
-            "http_chunk_size": 10485760,
-            "extractor_args": {
-                "youtube": {
-                    "player_client": cl_list,
-                    "player_skip": ["webpage", "configs"]
-                }
-            }
+            "concurrent_fragment_downloads": 4,
+            "extractor_args": {"youtube": {"player_client": cl_list}}
         }
-        if user_proxy:
-            opts["proxy"] = user_proxy
+        if has_ck:
+            opts["cookiefile"] = str(CK_PATH)
+
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([c_url])
-            fls = sorted((p for p in OUT_DIR.glob(f"{stem}.*") if p.suffix not in (".part", ".ytdl")), key=lambda p: p.stat().st_size, reverse=True)
-            if fls and fls[0].stat().st_size > 100_000:
+            fls = sorted(
+                (p for p in OUT_DIR.glob(f"{stem}.*") if p.suffix not in (".part", ".ytdl")),
+                key=lambda p: p.stat().st_size,
+                reverse=True
+            )
+            if fls and fls[0].stat().st_size > 50_000:
                 return fls[0], lbl, errs
         except Exception as e:
-            errs.append(f"{lbl}: {str(e)[:110]}")
+            errs.append(f"{lbl}: {str(e)[:120]}")
 
-    # STRATEGY 3: Auto-Rotating Proxy + Android_VR
-    status_box.info("🔄 Step 3: Trying Auto-Rotating Proxy Pool...")
-    proxy_list = [user_proxy] if user_proxy else get_working_proxies()
-    for px in proxy_list[:4]:
-        if not px:
-            continue
-        for p in OUT_DIR.glob(f"{stem}.*"):
-            p.unlink(missing_ok=True)
-        opts = {
-            "format": "18/b[ext=mp4]/b",
-            "outtmpl": str(OUT_DIR / f"{stem}.%(ext)s"),
-            "proxy": px,
-            "socket_timeout": 8,
-            "quiet": True,
-            "no_warnings": True,
-            "nocheckcertificate": True,
-            "extractor_args": {"youtube": {"player_client": ["android_vr", "tv_embedded"]}}
-        }
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([c_url])
-            fls = sorted((p for p in OUT_DIR.glob(f"{stem}.*") if p.suffix not in (".part", ".ytdl")), key=lambda p: p.stat().st_size, reverse=True)
-            if fls and fls[0].stat().st_size > 100_000:
-                return fls[0], f"Proxy ({px})", errs
-        except Exception as e:
-            errs.append(f"Proxy({px}): {str(e)[:70]}")
+    return None, "Failed", errs
 
-    return None, "All Blocked", errs
-
-# Exact PeakCut studio/render.py layout & loudnorm engine[span_0](start_span)[span_0](end_span)
 def render_short(i, src_p, st_t, dur, sw, sh, lay, res):
     W, H = (1080, 1920) if "1080" in res else (720, 1280)
     out_p = OUT_DIR / f"PeakCut_Short_{i+1}_{W}x{H}.mp4"
@@ -211,8 +138,8 @@ def render_short(i, src_p, st_t, dur, sw, sh, lay, res):
     subprocess.run(cmd, capture_output=True)
     return out_p if out_p.is_file() and out_p.stat().st_size > 10_000 else None
 
-# ---------------- UI: CLEAN COOKIE & PROXY SETUP ----------------
-with st.expander("🔑 Step 1: Clean Cookies Setup (HTTP 400 Bug Fixed!)", expanded=not CK_PATH.is_file()):
+# ---------------- UI: STEP 1 COOKIES ----------------
+with st.expander("🔑 Step 1: Cookies Setup (Universal Format Fixed!)", expanded=not CK_PATH.is_file()):
     if CK_PATH.is_file() and CK_PATH.stat().st_size > 30:
         st.success(f"✅ Clean Cookies Active! ({CK_PATH.stat().st_size} bytes)")
         if st.button("🗑️ Delete Saved Cookies"):
@@ -221,20 +148,19 @@ with st.expander("🔑 Step 1: Clean Cookies Setup (HTTP 400 Bug Fixed!)", expan
 
     up_ck = st.file_uploader("📂 Select cookies.txt from phone", type=["txt"])
     txt_ck = st.text_area("📋 Or Paste cookies.txt text here", height=70)
-    custom_px = st.text_input("🌐 Optional Proxy (e.g. http://user:pass@ip:port):", value="")
 
     if st.button("✅ OK / SAVE CLEAN COOKIES"):
         raw = up_ck.getvalue().decode("utf-8", errors="ignore") if up_ck else txt_ck.strip()
         if raw:
             n = save_clean_cookies(raw)
-            st.success(f"🎉 {n} Clean Cookies Saved (No Bad Headers)!")
+            st.success(f"🎉 {n} Cookies Saved!")
             time.sleep(0.5)
             st.rerun()
         else:
-            st.error("❌ Pehle cookies file select karein ya text paste karein!")
+            st.error("❌ Pehle cookies.txt file select karein!")
 
 # ---------------- MAIN INPUT UI ----------------
-mode = st.radio("📥 Select Method:", ["🔗 Paste YouTube Link", "📱 Upload Video From Phone (100% Guaranteed)"], horizontal=True)
+mode = st.radio("📥 Select Method:", ["🔗 Paste YouTube Link", "📱 Upload Video From Phone"], horizontal=True)
 
 url_in = ""
 up_vid = None
@@ -242,12 +168,6 @@ up_vid = None
 if "Link" in mode:
     url_in = st.text_input("🔗 Paste YouTube / Twitch / Kick Link:", placeholder="https://youtu.be/...")
 else:
-    st.info("💡 Niche किसी भी 1 बटन पर टैप करके अपने फोन में वीडियो सेव करें, फिर नीचे सेलेक्ट करें (Phone IP को YouTube कभी ब्लॉक नहीं करता!):")
-    c_d1, c_d2 = st.columns(2)
-    with c_d1:
-        st.link_button("⚡ 1. Download via Y2Mate", "https://www.y2mate.com", use_container_width=True)
-    with c_d2:
-        st.link_button("🌐 2. Download via SaveFrom", "https://en.savefrom.net", use_container_width=True)
     up_vid = st.file_uploader("📱 Phone se MP4/MKV Video Chunein:", type=["mp4", "mkv", "mov", "webm"])
 
 k1, k2 = st.columns(2)
@@ -272,9 +192,9 @@ if st.button("🚀 GENERATE PEAKCUT FHD SHORTS"):
         src_f.write_bytes(up_vid.getbuffer())
     elif url_in.strip():
         th = 1080 if "1080" in res_c else 720
-        src_f, eng, errs = smart_download(url_in.strip(), th, custom_px.strip(), status_msg)
+        src_f, eng, errs = smart_download(url_in.strip(), th, status_msg)
         if not src_f:
-            status_msg.error("❌ AWS Cloud IP Blocked by YouTube! Upay: Upar '🔑 Step 1' mein fresh cookies.txt save karein YA '📱 Upload Video From Phone' par tap karein.")
+            status_msg.error("❌ Download Failed! Niche technical log dekhein:")
             with st.expander("🔍 View Technical Logs"):
                 for e in errs:
                     st.caption(f"• {e}")
@@ -282,7 +202,7 @@ if st.button("🚀 GENERATE PEAKCUT FHD SHORTS"):
         status_msg.error("❌ Link daalein ya Video select karein!")
 
     if src_f and src_f.is_file():
-        status_msg.success(f"✅ Video Ready via **{eng}**! Rendering {clips_n} FHD Shorts...")
+        status_msg.success(f"✅ Video Downloaded via **{eng}**! Cutting {clips_n} FHD Shorts...")
         sw, sh, dur = probe_vid(src_f)
         c_len = 35.0 if dur >= 120 else max(12.0, dur / max(2, clips_n))
         step = max(8.0, max(c_len, dur - c_len - 4) / max(1, clips_n))
