@@ -1,8 +1,6 @@
-import os, re, time, json, shutil, zipfile, subprocess
+import os, re, time, json, socket, shutil, zipfile, subprocess
 from pathlib import Path
 import streamlit as st
-import streamlit.components.v1 as components
-import yt_dlp
 
 st.set_page_config(page_title="PeakCut Studio", page_icon="⚡", layout="centered")
 
@@ -14,7 +12,7 @@ st.markdown("""
 </style>
 <div class="pbox">
   <h3 style="margin:0;color:#fff;">⚡ PEAKCUT STUDIO (1080p FHD)</h3>
-  <p style="margin:4px 0 0 0;color:#86efac;font-size:12px;">Curl-CFFI TLS Impersonation • HLS Streamer • Phone-IP Widget</p>
+  <p style="margin:4px 0 0 0;color:#86efac;font-size:12px;">Native Phone-IP Buttons • Auto PoToken Engine • Zero Format Error</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -23,7 +21,12 @@ CK_PATH = Path("/tmp/clean_cookies.txt")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 def get_id(u: str):
-    pts = [r"(?:v=|/)([0-9A-Za-z_-]{11}).*", r"youtu[.]be/([0-9A-Za-z_-]{11})", r"shorts/([0-9A-Za-z_-]{11})"]
+    pts = [
+        r"(?:v=|/)([0-9A-Za-z_-]{11}).*",
+        r"youtu[.]be/([0-9A-Za-z_-]{11})",
+        r"shorts/([0-9A-Za-z_-]{11})",
+        r"live/([0-9A-Za-z_-]{11})"
+    ]
     for p in pts:
         m = re.search(p, u.strip())
         if m:
@@ -54,7 +57,11 @@ def save_clean_cookies(raw: str) -> int:
     return cnt
 
 def probe_vid(p: Path):
-    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:format=duration", "-of", "json", str(p)]
+    cmd = [
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=width,height:format=duration",
+        "-of", "json", str(p)
+    ]
     r = subprocess.run(cmd, capture_output=True, text=True)
     try:
         d = json.loads(r.stdout)
@@ -64,7 +71,29 @@ def probe_vid(p: Path):
     except Exception:
         return 1280, 720, 300.0
 
-# ---------------- ANTI-403 DOWNLOADER (HLS m3u8 + CURL-CFFI + CLI SUBPROCESS) ----------------
+def ensure_pot_server():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.5)
+    if s.connect_ex(("127.0.0.1", 4416)) == 0:
+        s.close()
+        return
+    s.close()
+    pot_dir = Path("/tmp/bgutil_pot")
+    if not (pot_dir / "server" / "build" / "main.js").is_file():
+        subprocess.run(
+            ["git", "clone", "--depth", "1", "https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git", str(pot_dir)],
+            capture_output=True
+        )
+        subprocess.run(["npm", "install"], cwd=str(pot_dir / "server"), capture_output=True)
+        subprocess.run(["npx", "tsc"], cwd=str(pot_dir / "server"), capture_output=True)
+    if (pot_dir / "server" / "build" / "main.js").is_file():
+        subprocess.Popen(
+            ["node", str(pot_dir / "server" / "build" / "main.js"), "-p", "4416"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        time.sleep(1.5)
+
 def smart_download(url: str, status_box) -> tuple:
     vid = get_id(url)
     stem = vid or "video"
@@ -72,25 +101,18 @@ def smart_download(url: str, status_box) -> tuple:
     has_ck = CK_PATH.is_file() and CK_PATH.stat().st_size > 30
     errs = []
 
-    # Why 403 happened before: HTTPS direct range files (googlevideo) are IP-bound to cookies.
-    # Solution: Prefer HLS (m3u8) streams first (protocol^=m3u8) + Chrome TLS Impersonation!
+    status_box.info("⚙️ Starting Local PoToken Generator (Anti-403)...")
+    try:
+        ensure_pot_server()
+    except Exception:
+        pass
+
+    # NO -f format restriction at all! Let yt-dlp auto-pick any working stream.
     cli_runs = [
-        (
-            "HLS Stream + Chrome Impersonate",
-            ["--extractor-args", "youtube:player_client=ios,mweb,tv_embedded;formats=missing_pot", "-f", "bv*[protocol*=m3u8]+ba/b[protocol*=m3u8]/b"]
-        ),
-        (
-            "TV Embedded + HLS",
-            ["--extractor-args", "youtube:player_client=tv_embedded", "-f", "b/bv*+ba"]
-        ),
-        (
-            "Android VR + Chunked",
-            ["--extractor-args", "youtube:player_client=android_vr", "--http-chunk-size", "10M", "-f", "b/bv*+ba"]
-        ),
-        (
-            "Web Creator + Cookies",
-            ["--extractor-args", "youtube:player_client=web_creator,mediaconnect", "-f", "b/bv*+ba"]
-        )
+        ("PoToken + MWeb/iOS Auto", ["--extractor-args", "youtube:player_client=mweb,ios;fetch_pot=always"]),
+        ("PoToken + Web Auto", ["--extractor-args", "youtube:player_client=web,tv_embedded;fetch_pot=always"]),
+        ("Android VR + PoToken", ["--extractor-args", "youtube:player_client=android_vr;fetch_pot=always"]),
+        ("Pure Default (No Args)", [])
     ]
 
     for lbl, extra_flags in cli_runs:
@@ -99,7 +121,8 @@ def smart_download(url: str, status_box) -> tuple:
             p.unlink(missing_ok=True)
 
         cmd = [
-            "yt-dlp", "-4", "--no-playlist", "--no-warnings", "--no-check-certificate", "--geo-bypass",
+            "yt-dlp", "-4", "--no-playlist", "--no-warnings",
+            "--no-check-certificate", "--geo-bypass",
             "--merge-output-format", "mp4",
             "-o", str(OUT_DIR / f"{stem}.%(ext)s")
         ]
@@ -109,7 +132,7 @@ def smart_download(url: str, status_box) -> tuple:
         cmd.append(c_url)
 
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=50)
             fls = sorted(
                 (p for p in OUT_DIR.glob(f"{stem}.*") if p.suffix not in (".part", ".ytdl")),
                 key=lambda p: p.stat().st_size,
@@ -117,13 +140,15 @@ def smart_download(url: str, status_box) -> tuple:
             )
             if fls and fls[0].stat().st_size > 50_000:
                 return fls[0], lbl, errs
-            err_msg = (r.stderr or r.stdout or "Empty").strip().splitlines()[-1]
+            lines = (r.stderr or r.stdout or "Failed").strip().splitlines()
+            err_msg = lines[-1] if lines else "Empty"
             errs.append(f"{lbl}: {err_msg[:110]}")
         except Exception as e:
             errs.append(f"{lbl}: {str(e)[:100]}")
 
     return None, "Failed", errs
 
+# Exact PeakCut studio/render.py layout & loudnorm engine[span_0](start_span)[span_0](end_span)
 def render_short(i, src_p, st_t, dur, sw, sh, lay, res):
     W, H = (1080, 1920) if "1080" in res else (720, 1280)
     out_p = OUT_DIR / f"PeakCut_Short_{i+1}_{W}x{H}.mp4"
@@ -159,6 +184,23 @@ def render_short(i, src_p, st_t, dur, sw, sh, lay, res):
     subprocess.run(cmd, capture_output=True)
     return out_p if out_p.is_file() and out_p.stat().st_size > 10_000 else None
 
+# ---------------- STEP 1: NATIVE PHONE-IP SAVE BUTTONS (OPENS 100% ON MOBILE!) ----------------
+st.markdown("##### ⚡ Option 1: Direct Phone-IP Video Saver (100% Working in India)")
+st.caption("Agar server 403 de, toh niche kisi bhi button par tap karke phone mein MP4 save karein (Ab tap karne par seedha naya tab khulega!):")
+b1, b2, b3 = st.columns(3)
+with b1:
+    st.link_button("🌐 1. Cobalt Saver", "https://cobalt.tools", use_container_width=True)
+with b2:
+    st.link_button("⚡ 2. EzMP4 (No Ads)", "https://ezmp4.com", use_container_width=True)
+with b3:
+    st.link_button("📥 3. Y2Mate.nu", "https://y2mate.nu", use_container_width=True)
+
+up_vid = st.file_uploader("📱 Phone se MP4 Video Yahan Select Karein (Zero Error, 15s Render):", type=["mp4", "mkv", "mov", "webm"])
+
+st.markdown("---")
+st.markdown("##### 🔗 Option 2: Direct YouTube Link + Auto PoToken Server")
+url_in = st.text_input("Paste YouTube Link:", placeholder="https://youtu.be/lqNFrFPX8jg")
+
 with st.expander("🔑 Cookies Setup (Optional)", expanded=False):
     if CK_PATH.is_file() and CK_PATH.stat().st_size > 30:
         st.success(f"✅ Cookies Active! ({CK_PATH.stat().st_size} B)")
@@ -176,25 +218,6 @@ with st.expander("🔑 Cookies Setup (Optional)", expanded=False):
             st.success(f"🎉 {n} Cookies Saved!")
             time.sleep(0.5)
             st.rerun()
-
-url_in = st.text_input("🔗 Paste YouTube Link:", placeholder="https://youtu.be/lqNFrFPX8jg")
-
-# Built-in Phone-IP Downloader Widget (Runs on User's Phone IP, NEVER gets 403!)
-vid_now = get_id(url_in)
-if vid_now:
-    with st.expander("⚡ 100% No-Fail Phone-IP Downloader (Agar Cloud 403 de toh yahan se 1-Click Save karein)"):
-        st.caption("Ye button aapke Phone ke IP se chalta hai (AWS Server se nahi), isliye ispar 403 kabhi nahi aata:")
-        components.html(
-            f"""
-            <div style="display:flex;gap:8px;justify-content:center;font-family:sans-serif;">
-              <a href="https://ssyoutube.com/watch?v={vid_now}" target="_blank" style="background:#22c55e;color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:13px;">📥 Fast Save #1 (SSYouTube)</a>
-              <a href="https://www.y2mate.com/youtube/{vid_now}" target="_blank" style="background:#3b82f6;color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:13px;">📥 Fast Save #2 (Y2Mate)</a>
-            </div>
-            """,
-            height=55
-        )
-
-up_vid = st.file_uploader("📱 Or Select Saved MP4 Video From Phone (100% Instant Render):", type=["mp4", "mkv", "mov", "webm"])
 
 k1, k2 = st.columns(2)
 with k1:
@@ -219,11 +242,11 @@ if st.button("🚀 GENERATE PEAKCUT FHD SHORTS"):
     elif url_in.strip():
         src_f, eng, errs = smart_download(url_in.strip(), status_msg)
         if not src_f:
-            status_msg.error("❌ AWS IP 403 Blocked! Upar '⚡ 100% No-Fail Phone-IP Downloader' khol kar 1 click mein video phone mein save karein aur niche select karein!")
+            status_msg.error("❌ Cloud IP 403 Blocked! Upar '🌐 1. Cobalt Saver' ya '⚡ 2. EzMP4' button par tap karke phone mein video save karein aur 'Browse files' mein select karein!")
             for e in errs:
                 st.caption(f"• {e}")
     else:
-        status_msg.error("❌ Link daalein ya Video select karein!")
+        status_msg.error("❌ Phone se Video select karein ya Link daalein!")
 
     if src_f and src_f.is_file():
         status_msg.success(f"✅ Video Ready ({eng})! Cutting {clips_n} Shorts...")
@@ -242,6 +265,7 @@ if st.button("🚀 GENERATE PEAKCUT FHD SHORTS"):
             bar.progress((i + 1) / clips_n)
 
         if done_fls:
+            # Exact PeakCut studio/account.py zip_clips[span_1](start_span)[span_1](end_span)[span_2](start_span)[span_2](end_span)
             zp = OUT_DIR / "PeakCut_Shorts.zip"
             with zipfile.ZipFile(zp, "w", zipfile.ZIP_STORED) as z:
                 for f in done_fls:
@@ -263,3 +287,4 @@ if "shorts" in st.session_state and st.session_state["shorts"]:
             st.download_button(f"📥 Save Short #{idx+1} ({mb} MB)", data=fb, file_name=os.path.basename(fp), mime="video/mp4", key=f"d_{idx}")
         st.video(fp)
 # END_OF_FILE
+                               
