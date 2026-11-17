@@ -1,67 +1,78 @@
-import os, re, time, json, socket, shutil, zipfile, subprocess
+import os, re, time, json, shutil, zipfile, subprocess
 from pathlib import Path
 import streamlit as st
 
-st.set_page_config(page_title="PeakCut Studio", page_icon="⚡", layout="centered")
+st.set_page_config(page_title="Nexus Clipping Studio", page_icon="✨", layout="centered")
 
+# Nexus Clipping Futuristic Dark UI
 st.markdown("""
 <style>
-.stApp {background-color: #09090b; color: #f4f4f5;}
-.pbox {background: #121215; border: 1px solid #22c55e; border-radius: 12px; padding: 14px; text-align: center; margin-bottom: 12px;}
-.stButton>button {width: 100%; background: #ef4444; color: #fff; font-weight: 700; border: none; border-radius: 8px; padding: 12px;}
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;700;800&display=swap');
+html, body, [class*="css"] {font-family: 'Plus Jakarta Sans', sans-serif;}
+.stApp {background: radial-gradient(circle at 50% 0%, #0f172a 0%, #020617 100%); color: #f8fafc;}
+.nexus-banner {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    padding: 24px;
+    text-align: center;
+    margin-bottom: 20px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+}
+.nexus-badge {
+    background: rgba(147, 51, 234, 0.2);
+    color: #c084fc;
+    padding: 4px 12px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+}
+.nexus-title {
+    font-size: 28px;
+    font-weight: 800;
+    color: #ffffff;
+    margin: 10px 0 4px 0;
+    background: linear-gradient(90deg, #ffffff, #94a3b8, #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.nexus-sub {color: #94a3b8; font-size: 13px; margin: 0;}
+.stButton>button {
+    width: 100%;
+    background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%);
+    color: #ffffff;
+    font-weight: 700;
+    border: none;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 15px;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    transition: all 0.2s ease;
+}
+.stButton>button:hover {opacity: 0.9; transform: translateY(-1px);}
 </style>
-<div class="pbox">
-  <h3 style="margin:0;color:#fff;">⚡ PEAKCUT STUDIO (1080p FHD)</h3>
-  <p style="margin:4px 0 0 0;color:#86efac;font-size:12px;">Native Phone-IP Buttons • Auto PoToken Engine • Zero Format Error</p>
+
+<div class="nexus-banner">
+  <span class="nexus-badge">⚡ Nexus Engine v2.0</span>
+  <div class="nexus-title">NEXUS CLIPPING STUDIO</div>
+  <p class="nexus-sub">Step 1: Web Staging Buffer • Step 2: Auto-Smart 9:16 Shorts Renderer</p>
 </div>
 """, unsafe_allow_html=True)
 
-OUT_DIR = Path("/tmp/peakcut_jobs")
-CK_PATH = Path("/tmp/clean_cookies.txt")
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+WORK_DIR = Path("/tmp/nexus_clipping")
+WORK_DIR.mkdir(parents=True, exist_ok=True)
 
-def get_id(u: str):
-    pts = [
-        r"(?:v=|/)([0-9A-Za-z_-]{11}).*",
-        r"youtu[.]be/([0-9A-Za-z_-]{11})",
-        r"shorts/([0-9A-Za-z_-]{11})",
-        r"live/([0-9A-Za-z_-]{11})"
-    ]
-    for p in pts:
-        m = re.search(p, u.strip())
+def get_youtube_id(url: str):
+    for p in [r"(?:v=|/)([0-9A-Za-z_-]{11}).*", r"youtu[.]be/([0-9A-Za-z_-]{11})", r"shorts/([0-9A-Za-z_-]{11})"]:
+        m = re.search(p, url.strip())
         if m:
             return m.group(1)
     return None
 
-def save_clean_cookies(raw: str) -> int:
-    lines = ["# Netscape HTTP Cookie File"]
-    cnt = 0
-    for ln in raw.splitlines():
-        s = ln.strip()
-        if s.startswith("#HttpOnly_"):
-            s = s[10:]
-        elif not s or s.startswith("#"):
-            continue
-        pts = s.split("\t")
-        if len(pts) < 7:
-            pts = re.split(r"\s+", s, maxsplit=6)
-        if len(pts) >= 7:
-            dom = pts[0]
-            flg = "TRUE" if dom.startswith(".") else "FALSE"
-            pth = pts[2] if pts[2].startswith("/") else "/"
-            sec = "TRUE" if pts[3].upper() == "TRUE" else "FALSE"
-            exp = re.sub(r"[^0-9]", "", pts[4]) or "1893456000"
-            lines.append(f"{dom}\t{flg}\t{pth}\t{sec}\t{exp}\t{pts[5]}\t{pts[6].strip()}")
-            cnt += 1
-    CK_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return cnt
-
-def probe_vid(p: Path):
-    cmd = [
-        "ffprobe", "-v", "error", "-select_streams", "v:0",
-        "-show_entries", "stream=width,height:format=duration",
-        "-of", "json", str(p)
-    ]
+def get_video_meta(path: Path):
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:format=duration", "-of", "json", str(path)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     try:
         d = json.loads(r.stdout)
@@ -71,112 +82,35 @@ def probe_vid(p: Path):
     except Exception:
         return 1280, 720, 300.0
 
-def ensure_pot_server():
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(0.5)
-    if s.connect_ex(("127.0.0.1", 4416)) == 0:
-        s.close()
-        return
-    s.close()
-    pot_dir = Path("/tmp/bgutil_pot")
-    if not (pot_dir / "server" / "build" / "main.js").is_file():
-        subprocess.run(
-            ["git", "clone", "--depth", "1", "https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git", str(pot_dir)],
-            capture_output=True
-        )
-        subprocess.run(["npm", "install"], cwd=str(pot_dir / "server"), capture_output=True)
-        subprocess.run(["npx", "tsc"], cwd=str(pot_dir / "server"), capture_output=True)
-    if (pot_dir / "server" / "build" / "main.js").is_file():
-        subprocess.Popen(
-            ["node", str(pot_dir / "server" / "build" / "main.js"), "-p", "4416"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        time.sleep(1.5)
-
-def smart_download(url: str, status_box) -> tuple:
-    vid = get_id(url)
-    stem = vid or "video"
-    c_url = f"https://www.youtube.com/watch?v={vid}" if vid else url.strip()
-    has_ck = CK_PATH.is_file() and CK_PATH.stat().st_size > 30
-    errs = []
-
-    status_box.info("⚙️ Starting Local PoToken Generator (Anti-403)...")
-    try:
-        ensure_pot_server()
-    except Exception:
-        pass
-
-    # NO -f format restriction at all! Let yt-dlp auto-pick any working stream.
-    cli_runs = [
-        ("PoToken + MWeb/iOS Auto", ["--extractor-args", "youtube:player_client=mweb,ios;fetch_pot=always"]),
-        ("PoToken + Web Auto", ["--extractor-args", "youtube:player_client=web,tv_embedded;fetch_pot=always"]),
-        ("Android VR + PoToken", ["--extractor-args", "youtube:player_client=android_vr;fetch_pot=always"]),
-        ("Pure Default (No Args)", [])
-    ]
-
-    for lbl, extra_flags in cli_runs:
-        status_box.info(f"⚡ Trying {lbl}...")
-        for p in OUT_DIR.glob(f"{stem}.*"):
-            p.unlink(missing_ok=True)
-
-        cmd = [
-            "yt-dlp", "-4", "--no-playlist", "--no-warnings",
-            "--no-check-certificate", "--geo-bypass",
-            "--merge-output-format", "mp4",
-            "-o", str(OUT_DIR / f"{stem}.%(ext)s")
-        ]
-        if has_ck and "Android VR" not in lbl:
-            cmd.extend(["--cookies", str(CK_PATH)])
-        cmd.extend(extra_flags)
-        cmd.append(c_url)
-
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=50)
-            fls = sorted(
-                (p for p in OUT_DIR.glob(f"{stem}.*") if p.suffix not in (".part", ".ytdl")),
-                key=lambda p: p.stat().st_size,
-                reverse=True
-            )
-            if fls and fls[0].stat().st_size > 50_000:
-                return fls[0], lbl, errs
-            lines = (r.stderr or r.stdout or "Failed").strip().splitlines()
-            err_msg = lines[-1] if lines else "Empty"
-            errs.append(f"{lbl}: {err_msg[:110]}")
-        except Exception as e:
-            errs.append(f"{lbl}: {str(e)[:100]}")
-
-    return None, "Failed", errs
-
-# Exact PeakCut studio/render.py layout & loudnorm engine[span_0](start_span)[span_0](end_span)
-def render_short(i, src_p, st_t, dur, sw, sh, lay, res):
-    W, H = (1080, 1920) if "1080" in res else (720, 1280)
-    out_p = OUT_DIR / f"PeakCut_Short_{i+1}_{W}x{H}.mp4"
+def render_nexus_short(i: int, src_path: Path, st_t: float, dur: float, sw: int, sh: int, quality: str, layout: str) -> Path:
+    is_fhd = "1080" in quality
+    W, H = (1080, 1920) if is_fhd else (720, 1280)
+    out_p = WORK_DIR / f"Nexus_Short_{i+1}_{W}x{H}.mp4"
     out_p.unlink(missing_ok=True)
 
-    if "Full frame" in lay:
+    if "Blurred BG" in layout:
         fh = min(H, int(round(W * sh / max(1, sw) / 2)) * 2)
         vf = (
             f"[0:v]fps=30,split=2[a][b];"
             f"[a]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
             f"scale={W}:{H},eq=brightness=-0.14:saturation=1.15[bg];"
-            f"[b]scale={W}:{fh}:force_original_aspect_ratio=increase,crop={W}:{fh}[fg];"
+            f"[b]scale={W}:{fh}:force_original_aspect_ratio=increase,crop={W}:{fh},unsharp=3:3:0.6:3:3:0.0[fg];"
             f"[bg][fg]overlay=0:(H-h)/2,setsar=1[v]"
         )
-    elif "Zoomed" in lay:
+    elif "Zoomed" in layout:
         fh = int(H * 0.52)
         vf = (
             f"[0:v]fps=30,split=2[a][b];"
             f"[a]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
             f"scale={W}:{H},eq=brightness=-0.14:saturation=1.15[bg];"
-            f"[b]scale={W}:{fh}:force_original_aspect_ratio=increase,crop={W}:{fh}[fg];"
+            f"[b]scale={W}:{fh}:force_original_aspect_ratio=increase,crop={W}:{fh},unsharp=3:3:0.6:3:3:0.0[fg];"
             f"[bg][fg]overlay=0:(H-h)/2,setsar=1[v]"
         )
     else:
-        vf = f"[0:v]fps=30,scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[v]"
+        vf = f"[0:v]fps=30,scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},unsharp=3:3:0.6:3:3:0.0,setsar=1[v]"
 
     cmd = [
-        "ffmpeg", "-y", "-v", "error", "-ss", f"{st_t:.2f}", "-t", f"{dur:.2f}", "-i", str(src_p),
+        "ffmpeg", "-y", "-v", "error", "-ss", f"{st_t:.2f}", "-t", f"{dur:.2f}", "-i", str(src_path),
         "-filter_complex", vf, "-map", "[v]", "-map", "0:a:0?", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
         "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "-pix_fmt", "yuv420p",
         "-c:v", "libx264", "-crf", "20", "-preset", "veryfast", str(out_p)
@@ -184,107 +118,113 @@ def render_short(i, src_p, st_t, dur, sw, sh, lay, res):
     subprocess.run(cmd, capture_output=True)
     return out_p if out_p.is_file() and out_p.stat().st_size > 10_000 else None
 
-# ---------------- STEP 1: NATIVE PHONE-IP SAVE BUTTONS (OPENS 100% ON MOBILE!) ----------------
-st.markdown("##### ⚡ Option 1: Direct Phone-IP Video Saver (100% Working in India)")
-st.caption("Agar server 403 de, toh niche kisi bhi button par tap karke phone mein MP4 save karein (Ab tap karne par seedha naya tab khulega!):")
-b1, b2, b3 = st.columns(3)
-with b1:
-    st.link_button("🌐 1. Cobalt Saver", "https://cobalt.tools", use_container_width=True)
-with b2:
-    st.link_button("⚡ 2. EzMP4 (No Ads)", "https://ezmp4.com", use_container_width=True)
-with b3:
-    st.link_button("📥 3. Y2Mate.nu", "https://y2mate.nu", use_container_width=True)
+# ---------------- NEXUS STEP 1: STAGING BUFFER & RESOLUTION CHOOSE ----------------
+st.markdown("### 📥 Step 1: Nexus Staging Fetcher")
+input_mode = st.radio("Choose Input Method:", ["🔗 YouTube / Direct Link", "📱 Upload Local Video File"], horizontal=True)
 
-up_vid = st.file_uploader("📱 Phone se MP4 Video Yahan Select Karein (Zero Error, 15s Render):", type=["mp4", "mkv", "mov", "webm"])
+video_file = None
+source_label = ""
 
-st.markdown("---")
-st.markdown("##### 🔗 Option 2: Direct YouTube Link + Auto PoToken Server")
-url_in = st.text_input("Paste YouTube Link:", placeholder="https://youtu.be/lqNFrFPX8jg")
+if "Link" in input_mode:
+    nexus_url = st.text_input("Paste Video Link (Supports 360p up to 4K):", placeholder="https://youtu.be/...")
+    res_pref = st.selectbox("🎯 Select Staging Resolution:", ["4K Ultra HD", "2K QHD", "1080p FHD ⭐", "720p HD", "360p Fast"])
+    
+    if nexus_url.strip():
+        vid_id = get_youtube_id(nexus_url)
+        if vid_id:
+            st.info(f"✨ Video detected (ID: `{vid_id}`). Staging buffer ready for acquisition.")
+            if st.button("📥 ACQUIRE VIDEO INTO NEXUS BUFFER"):
+                with st.spinner("⚡ Fetching stream into website staging memory..."):
+                    target_h = 2160 if "4K" in res_pref else (1440 if "2K" in res_pref else (1080 if "1080" in res_pref else 720))
+                    staged_path = WORK_DIR / "staged_video.mp4"
+                    staged_path.unlink(missing_ok=True)
+                    
+                    # High-speed yt-dlp pull into staging memory
+                    cmd = [
+                        "yt-dlp", "-4", "--no-playlist", "--no-warnings", "--geo-bypass",
+                        "-f", f"bv*[height<={target_h}][vcodec^=avc1]+ba/b[height<={target_h}]/b",
+                        "--merge-output-format", "mp4", "-o", str(staged_path), nexus_url.strip()
+                    ]
+                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    if staged_path.is_file() and staged_path.stat().st_size > 100_000:
+                        st.session_state["staged_video"] = str(staged_path)
+                        st.success("🎉 Video successfully staged in Nexus memory! Proceed to Step 2 below.")
+                    else:
+                        # Fallback to general best format if avc1 restricted
+                        cmd_fallback = [
+                            "yt-dlp", "-4", "--no-playlist", "--no-warnings", "--geo-bypass",
+                            "-f", "b/bv+ba", "--merge-output-format", "mp4", "-o", str(staged_path), nexus_url.strip()
+                        ]
+                        subprocess.run(cmd_fallback, capture_output=True)
+                        if staged_path.is_file() and staged_path.stat().st_size > 100_000:
+                            st.session_state["staged_video"] = str(staged_path)
+                            st.success("🎉 Video successfully staged via fallback stream!")
+                        else:
+                            st.error("❌ Acquisition failed due to platform restriction. Use 'Upload Local Video File' tab below.")
+        else:
+            st.warning("⚠️ Valid YouTube link daalein.")
+else:
+    up_local = st.file_uploader("Upload video file directly into Nexus memory:", type=["mp4", "mkv", "mov", "webm"])
+    if up_local is not None:
+        staged_path = WORK_DIR / "staged_video.mp4"
+        staged_path.write_bytes(up_local.getbuffer())
+        st.session_state["staged_video"] = str(staged_path)
+        st.success("📱 Local video loaded into Nexus buffer!")
 
-with st.expander("🔑 Cookies Setup (Optional)", expanded=False):
-    if CK_PATH.is_file() and CK_PATH.stat().st_size > 30:
-        st.success(f"✅ Cookies Active! ({CK_PATH.stat().st_size} B)")
-        if st.button("🗑️ Delete Cookies"):
-            CK_PATH.unlink(missing_ok=True)
-            st.rerun()
+# ---------------- NEXUS STEP 2: CLIPPING SETUP & SMART RENDERER ----------------
+if "staged_video" in st.session_state and Path(st.session_state["staged_video"]).is_file():
+    st.markdown("---")
+    st.markdown("### ✂️ Step 2: Nexus Clipping Studio")
+    
+    st.video(st.session_state["staged_video"])
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        clips_count = st.selectbox("🎞️ Number of Shorts to Cut:", [5, 10, 15, 20], index=0)
+    with c2:
+        output_res = st.selectbox("💎 Output Short Quality:", ["1080p FHD ⭐", "720p HD"], index=0)
+        
+    layout_style = st.radio("📐 Nexus Vertical Layout:", ["Blurred BG (Full Frame) ⭐", "Zoomed in + Blurred BG", "Full Screen (Center Crop)"], horizontal=True)
+    
+    if st.button("🚀 LAUNCH NEXUS SMART CLIPPING ENGINE"):
+        staged_p = Path(st.session_state["staged_video"])
+        sw, sh, dur = get_video_meta(staged_p)
+        
+        clip_len = 35.0 if dur >= 120 else max(12.0, dur / max(2, clips_count))
+        step = max(8.0, max(clip_len, dur - clip_len - 4) / max(1, clips_count))
+        
+        prog_bar = st.progress(0.0, text="✨ Initializing Nexus AI Cutting Grid...")
+        nexus_outputs = []
+        
+        for i in range(clips_count):
+            st_time = min(3.0 + i * step, max(0.0, dur - clip_len))
+            prog_bar.progress(i / clips_count, text=f"⚡ Processing Short #{i+1} of {clips_count}...")
+            
+            out_file = render_nexus_short(i, staged_p, st_time, clip_len, sw, sh, output_res, layout_style)
+            if out_file:
+                nexus_outputs.append(out_file)
+            prog_bar.progress((i + 1) / clips_count, text=f"✅ Short #{i+1} Rendered!")
+            
+        if nexus_outputs:
+            zip_nexus = WORK_DIR / "Nexus_Clipping_Shorts.zip"
+            with zipfile.ZipFile(zip_nexus, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
+                for fpath in nexus_outputs:
+                    zf.write(fpath, fpath.name)
+            
+            st.session_state["nexus_zip"] = str(zip_nexus)
+            st.session_state["nexus_files"] = [str(f) for f in nexus_outputs]
+            prog_bar.empty()
+            st.success(f"🎉 All {len(nexus_outputs)} Shorts successfully generated in Nexus memory!")
 
-    up_ck = st.file_uploader("📂 Select cookies.txt", type=["txt"])
-    txt_ck = st.text_area("📋 Or Paste cookies.txt", height=60)
-
-    if st.button("✅ OK / SAVE COOKIES"):
-        raw = up_ck.getvalue().decode("utf-8", errors="ignore") if up_ck else txt_ck.strip()
-        if raw:
-            n = save_clean_cookies(raw)
-            st.success(f"🎉 {n} Cookies Saved!")
-            time.sleep(0.5)
-            st.rerun()
-
-k1, k2 = st.columns(2)
-with k1:
-    clips_n = st.selectbox("🎞️ Clips:", [5, 10, 15, 20], index=0)
-with k2:
-    res_c = st.selectbox("💎 Quality:", ["1080p FHD ⭐", "720p HD"], index=0)
-
-lay_c = st.radio("📐 Layout:", ["Full frame + blurred fill ⭐", "Zoomed in + blurred fill", "Fill the screen (crop)"], horizontal=True)
-
-if st.button("🚀 GENERATE PEAKCUT FHD SHORTS"):
-    shutil.rmtree(OUT_DIR, ignore_errors=True)
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    t0 = time.time()
-    src_f = None
-    eng = "Phone Upload"
-    status_msg = st.empty()
-
-    if up_vid is not None:
-        src_f = OUT_DIR / "upload.mp4"
-        status_msg.info("📥 Loading video from phone...")
-        src_f.write_bytes(up_vid.getbuffer())
-    elif url_in.strip():
-        src_f, eng, errs = smart_download(url_in.strip(), status_msg)
-        if not src_f:
-            status_msg.error("❌ Cloud IP 403 Blocked! Upar '🌐 1. Cobalt Saver' ya '⚡ 2. EzMP4' button par tap karke phone mein video save karein aur 'Browse files' mein select karein!")
-            for e in errs:
-                st.caption(f"• {e}")
-    else:
-        status_msg.error("❌ Phone se Video select karein ya Link daalein!")
-
-    if src_f and src_f.is_file():
-        status_msg.success(f"✅ Video Ready ({eng})! Cutting {clips_n} Shorts...")
-        sw, sh, dur = probe_vid(src_f)
-        c_len = 35.0 if dur >= 120 else max(12.0, dur / max(2, clips_n))
-        step = max(8.0, max(c_len, dur - c_len - 4) / max(1, clips_n))
-        bar = st.progress(0.0)
-        done_fls = []
-
-        for i in range(clips_n):
-            st_t = min(3.0 + i * step, max(0.0, dur - c_len))
-            bar.progress(i / clips_n)
-            out_p = render_short(i, src_f, st_t, c_len, sw, sh, lay_c, res_c)
-            if out_p:
-                done_fls.append(out_p)
-            bar.progress((i + 1) / clips_n)
-
-        if done_fls:
-            # Exact PeakCut studio/account.py zip_clips[span_1](start_span)[span_1](end_span)[span_2](start_span)[span_2](end_span)
-            zp = OUT_DIR / "PeakCut_Shorts.zip"
-            with zipfile.ZipFile(zp, "w", zipfile.ZIP_STORED) as z:
-                for f in done_fls:
-                    z.write(f, f.name)
-            st.session_state["shorts"] = [str(f) for f in done_fls]
-            st.session_state["zip"] = str(zp)
-            st.session_state["sec"] = int(time.time() - t0)
-            status_msg.empty()
-
-if "shorts" in st.session_state and st.session_state["shorts"]:
-    st.success(f"🎉 {len(st.session_state['shorts'])} Shorts Ready in {st.session_state.get('sec', 20)}s!")
-    if "zip" in st.session_state and os.path.exists(st.session_state["zip"]):
-        with open(st.session_state["zip"], "rb") as zb:
-            st.download_button("📦 DOWNLOAD ALL (.ZIP)", data=zb, file_name="PeakCut_Shorts.zip", mime="application/zip")
-
-    for idx, fp in enumerate(st.session_state["shorts"]):
-        mb = round(os.path.getsize(fp) / (1024 * 1024), 1)
-        with open(fp, "rb") as fb:
-            st.download_button(f"📥 Save Short #{idx+1} ({mb} MB)", data=fb, file_name=os.path.basename(fp), mime="video/mp4", key=f"d_{idx}")
+if "nexus_zip" in st.session_state and os.path.exists(st.session_state["nexus_zip"]):
+    st.markdown("---")
+    st.markdown("### 📦 Download Nexus Package")
+    with open(st.session_state["nexus_zip"], "rb") as zb:
+        st.download_button("📥 DOWNLOAD ALL SHORTS (.ZIP - INSTANT)", data=zb, file_name="Nexus_Clipping_Shorts.zip", mime="application/zip", use_container_width=True)
+        
+    for idx, fp in enumerate(st.session_state["nexus_files"]):
+        f_mb = round(os.path.getsize(fp) / (1024 * 1024), 1)
+        with open(fp, "rb") as f_bytes:
+            st.download_button(f"⬇️ Save Short #{idx+1} ({f_mb} MB)", data=f_bytes, file_name=os.path.basename(fp), mime="video/mp4", key=f"nexus_dl_{idx}")
         st.video(fp)
-# END_OF_FILE
-                               
+      
