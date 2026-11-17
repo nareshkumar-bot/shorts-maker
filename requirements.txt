@@ -1,7 +1,6 @@
 streamlit
-yt-dlp>=2025.2.19
+yt-dlp[default,curl-cffi]
 bgutil-ytdlp-pot-provider
-pytubefix
 requests
 httpx
 pillow
